@@ -249,7 +249,7 @@ export function ExcludedChannels() {
                       )}
                       {channel.subscriberCount && (
                         <p className="text-sm text-muted-foreground">
-                          {parseInt(channel.subscriberCount).toLocaleString()} subscribers
+                          {parseInt(channel.subscriberCount.toString()).toLocaleString()} subscribers
                         </p>
                       )}
                     </div>

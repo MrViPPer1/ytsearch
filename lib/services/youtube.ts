@@ -78,7 +78,7 @@ export class YouTubeService {
           videoCategoryId: filters.category,
         });
         
-        lastSearchResponse = searchResponse; // Store for pagination
+        lastSearchResponse = searchResponse.data; // Store for pagination
         quotaUsed += 100;
         estimatedQuota = 100; // Base search cost
         
@@ -192,7 +192,7 @@ export class YouTubeService {
 
       // Calculate pagination values
       const totalResults = Math.min(
-        parseInt(lastSearchResponse?.data.pageInfo?.totalResults?.toString() || '0'),
+        parseInt(lastSearchResponse?.pageInfo?.totalResults?.toString() || '0'),
         500 // YouTube API limit
       );
       
