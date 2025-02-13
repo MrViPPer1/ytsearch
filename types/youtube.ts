@@ -81,9 +81,6 @@ export interface ExcludedChannel {
   id: string;
   title: string;
   excludedAt: Date | string;
-  customUrl?: string;
-  thumbnailUrl?: string;
-  subscriberCount?: number;
 }
 
 declare module 'googleapis' {

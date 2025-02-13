@@ -55,8 +55,8 @@ export default function SettingsPage() {
         ]);
 
         if (!keysResponse.ok || !quotaResponse.ok) {
-          const errorData = await keysResponse.json();
-          throw new Error(errorData.error || 'Failed to load data');
+          const error = await keysResponse.json();
+          throw new Error(error.error || 'Failed to load data');
         }
 
         const [keys, quota] = await Promise.all([
@@ -200,7 +200,7 @@ export default function SettingsPage() {
       toast({
         variant: 'destructive',
         title: 'Error',
-        description: error instanceof Error ? error.message : 'Failed to refresh quota information',
+        description: 'Failed to refresh quota information',
       });
     }
   };

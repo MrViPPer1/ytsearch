@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -35,25 +35,25 @@ export function ExcludedChannels() {
     },
   });
 
-  const loadExcludedChannels = useCallback(async () => {
+  const loadExcludedChannels = async () => {
     try {
       const response = await fetch('/api/excluded-channels');
       if (!response.ok) throw new Error('Failed to load excluded channels');
       const data = await response.json();
       setExcludedChannels(data);
-    } catch {
+    } catch (error) {
       toast({
         variant: 'destructive',
         title: 'Error',
         description: 'Failed to load excluded channels',
       });
     }
-  }, [toast]);
+  };
 
   // Load excluded channels on component mount
   useEffect(() => {
     loadExcludedChannels();
-  }, [loadExcludedChannels]);
+  }, []);
 
   const onSubmit = async (values: ChannelFormValues) => {
     try {
@@ -73,11 +73,11 @@ export function ExcludedChannels() {
         title: 'Success',
         description: 'Channel added to exclusion list',
       });
-    } catch {
+    } catch (error) {
       toast({
         variant: 'destructive',
         title: 'Error',
-        description: 'Failed to add channel',
+        description: error instanceof Error ? error.message : 'Failed to add channel',
       });
     } finally {
       setIsLoading(false);
@@ -99,7 +99,7 @@ export function ExcludedChannels() {
         title: 'Success',
         description: 'Channel removed from exclusion list',
       });
-    } catch {
+    } catch (error) {
       toast({
         variant: 'destructive',
         title: 'Error',
@@ -129,7 +129,7 @@ export function ExcludedChannels() {
         title: 'Success',
         description: 'Channels imported successfully',
       });
-    } catch {
+    } catch (error) {
       toast({
         variant: 'destructive',
         title: 'Error',
@@ -152,7 +152,7 @@ export function ExcludedChannels() {
       a.click();
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
-    } catch {
+    } catch (error) {
       toast({
         variant: 'destructive',
         title: 'Error',
@@ -249,7 +249,7 @@ export function ExcludedChannels() {
                       )}
                       {channel.subscriberCount && (
                         <p className="text-sm text-muted-foreground">
-                          {parseInt(channel.subscriberCount.toString()).toLocaleString()} subscribers
+                          {parseInt(channel.subscriberCount).toLocaleString()} subscribers
                         </p>
                       )}
                     </div>

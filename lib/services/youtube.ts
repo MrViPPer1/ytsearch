@@ -4,6 +4,7 @@ import {
   getValidApiKey, 
   updateQuotaUsage, 
   isChannelExcluded,
+  storePageToken,
   getPageToken,
   generateSearchKey
 } from './storage';
@@ -52,7 +53,7 @@ export class YouTubeService {
     let quotaUsed = 0;
     let estimatedQuota = 0;
     let allChannels: youtube_v3.Schema$Channel[] = [];
-    let lastSearchResponse: youtube_v3.Schema$SearchListResponse | null = null;
+    let lastSearchResponse: any = null;
     
     try {
       const searchKey = generateSearchKey(filters);
@@ -78,7 +79,7 @@ export class YouTubeService {
           videoCategoryId: filters.category,
         });
         
-        lastSearchResponse = searchResponse.data; // Store for pagination
+        lastSearchResponse = searchResponse; // Store for pagination
         quotaUsed += 100;
         estimatedQuota = 100; // Base search cost
         
@@ -192,7 +193,7 @@ export class YouTubeService {
 
       // Calculate pagination values
       const totalResults = Math.min(
-        parseInt(lastSearchResponse?.pageInfo?.totalResults?.toString() || '0'),
+        parseInt(lastSearchResponse?.data.pageInfo?.totalResults?.toString() || '0'),
         500 // YouTube API limit
       );
       

@@ -172,6 +172,7 @@ export function SearchForm({
   });
 
   const maxResultsValue = form.watch('maxResults');
+  const lastUploadValue = form.watch('lastUploadDays');
   const hasEmailValue = form.watch('hasEmail');
 
   // Show warning when maxResults is high or hasEmail is true
@@ -209,7 +210,6 @@ export function SearchForm({
         category: values.category === 'all' ? undefined : values.category,
         country: values.country === 'all' ? undefined : values.country,
         language: values.language === 'all' ? undefined : values.language,
-        page: 1
       };
 
       console.log('Calling search with filters:', filters);

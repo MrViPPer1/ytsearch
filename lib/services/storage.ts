@@ -2,7 +2,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { gzip, unzip } from 'zlib';
 import { promisify } from 'util';
-import { ApiKey, SearchHistory, ExcludedChannel, SearchFilters, YoutubeChannel } from '@/types/youtube';
+import { ApiKey, SearchHistory, ExcludedChannel, SearchFilters, YoutubeChannel, OptimizedChannel } from '@/types/youtube';
 import { format } from 'date-fns';
 
 const gzipAsync = promisify(gzip);
@@ -25,6 +25,10 @@ const EXCLUDED_CHANNELS_FILE = path.join(DATA_DIR, 'excluded-channels.json');
 const PAGE_TOKENS_FILE = path.join(DATA_DIR, 'page-tokens.json');
 const BACKUP_DIR = path.join(DATA_DIR, 'backups');
 
+// Maximum number of searches to keep
+const MAX_SEARCHES = 1000;
+// Maximum age of searches in days
+const MAX_SEARCH_AGE_DAYS = 30;
 // Maximum searches per page for pagination
 const MAX_SEARCHES_PER_PAGE = 50;
 
@@ -33,21 +37,6 @@ interface PageTokenEntry {
   page: number;
   token: string;
   timestamp: number;
-}
-
-interface YouTubeChannelData {
-  id: string;
-  title: string;
-  customUrl?: string | null;
-  statistics: {
-    subscriberCount: number;
-    videoCount: number;
-    viewCount: number;
-  };
-  email?: string | null;
-  country?: string | null;
-  keywords?: string[] | null;
-  publishedAt: string;
 }
 
 // Helper function to compress data
@@ -104,20 +93,47 @@ async function readCompressedJsonFile<T>(filePath: string, defaultValue: T): Pro
   }
 }
 
+// Helper function to validate JSON string
+function validateJsonString(jsonString: string): boolean {
+  try {
+    const parsed = JSON.parse(jsonString);
+    
+    // Ensure the root is an array for our data files
+    if (!Array.isArray(parsed)) {
+      return false;
+    }
+    
+    // Check for duplicate closing brackets
+    const trimmed = jsonString.trim();
+    if (trimmed.endsWith(']]')) {
+      return false;
+    }
+    
+    // Count brackets in the cleaned string
+    const cleanedString = trimmed.replace(/\s+/g, '');
+    const openBrackets = (cleanedString.match(/\[/g) || []).length;
+    const closeBrackets = (cleanedString.match(/\]/g) || []).length;
+    
+    return openBrackets === closeBrackets && openBrackets === 1;
+  } catch {
+    return false;
+  }
+}
+
 // Helper function to safely write compressed JSON
-async function writeCompressedJsonFile(filePath: string, data: unknown) {
+async function writeCompressedJsonFile(filePath: string, data: any) {
   try {
     const jsonString = JSON.stringify(data);
     const compressed = await compressData(jsonString);
     await fs.writeFile(filePath, compressed);
-  } catch (error: unknown) {
+  } catch (error) {
     console.error(`Error writing compressed file ${filePath}:`, error);
     throw error;
   }
 }
 
 // Check if quota should be reset
-function shouldResetQuota(lastUsed: Date | string): boolean {
+function shouldResetQuota(lastUsed: Date): boolean {
   const now = new Date();
   const lastUsedDate = new Date(lastUsed);
   
@@ -239,7 +255,7 @@ async function cleanupOldSearches(history: SearchHistory[]): Promise<SearchHisto
 }
 
 // Optimize channel data for storage
-function optimizeChannelData(channel: YouTubeChannelData) {
+function optimizeChannelData(channel: any) {
   return {
     id: channel.id,
     title: channel.title,

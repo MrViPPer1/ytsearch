@@ -6,6 +6,7 @@ import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { RefreshCw } from 'lucide-react';
+import { formatTimeUntil } from '@/lib/utils';
 
 interface QuotaInfo {
   quotaUsed: number;
@@ -160,7 +161,6 @@ export function QuotaDisplay() {
       {quotaInfo.map((info) => {
         const usagePercentage = (info.quotaUsed / info.quotaLimit) * 100;
         const resetDate = new Date(info.resetTime);
-
         const formattedResetTime = resetDate.toLocaleString('en-US', {
           weekday: 'long',
           month: 'long',
@@ -179,7 +179,6 @@ export function QuotaDisplay() {
                   <span className="ml-2 text-sm text-red-500">(Quota Exceeded)</span>
                 )}
               </CardTitle>
-              <p className="text-sm text-muted-foreground">Resets on {formattedResetTime}</p>
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
