@@ -6,7 +6,6 @@ import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { RefreshCw } from 'lucide-react';
-import { formatTimeUntil } from '@/lib/utils';
 
 interface QuotaInfo {
   quotaUsed: number;

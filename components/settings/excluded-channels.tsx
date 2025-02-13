@@ -53,7 +53,7 @@ export function ExcludedChannels() {
   // Load excluded channels on component mount
   useEffect(() => {
     loadExcludedChannels();
-  }, []);
+  }, [loadExcludedChannels]);
 
   const onSubmit = async (values: ChannelFormValues) => {
     try {

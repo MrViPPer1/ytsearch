@@ -26,7 +26,7 @@ export function SearchResults({ channels, isLoading }: SearchResultsProps) {
           id: channel.id,
           title: channel.title,
           customUrl: channel.customUrl,
-          thumbnailUrl: channel.thumbnails.default.url,
+          thumbnailUrl: channel.thumbnails?.default?.url,
           subscriberCount: channel.statistics.subscriberCount,
         }),
       });
@@ -41,7 +41,7 @@ export function SearchResults({ channels, isLoading }: SearchResultsProps) {
       toast({
         variant: 'destructive',
         title: 'Error',
-        description: 'Failed to exclude channel',
+        description: error instanceof Error ? error.message : 'Failed to exclude channel',
       });
     }
   };
@@ -57,7 +57,7 @@ export function SearchResults({ channels, isLoading }: SearchResultsProps) {
             id: channel.id,
             title: channel.title,
             customUrl: channel.customUrl,
-            thumbnailUrl: channel.thumbnails.default.url,
+            thumbnailUrl: channel.thumbnails?.default?.url,
             subscriberCount: channel.statistics.subscriberCount,
           }),
         }).catch(() => null) // Ignore individual failures
@@ -71,7 +71,7 @@ export function SearchResults({ channels, isLoading }: SearchResultsProps) {
       toast({
         variant: 'destructive',
         title: 'Error',
-        description: 'Failed to exclude all channels',
+        description: error instanceof Error ? error.message : 'Failed to exclude channels',
       });
     }
   };
@@ -127,13 +127,15 @@ export function SearchResults({ channels, isLoading }: SearchResultsProps) {
             <CardHeader>
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-4">
-                  <Image
-                    src={channel.thumbnails.default.url}
-                    alt={channel.title}
-                    width={48}
-                    height={48}
-                    className="rounded-full"
-                  />
+                  {channel.thumbnails?.default?.url && (
+                    <Image
+                      src={channel.thumbnails.default.url}
+                      alt={channel.title}
+                      width={48}
+                      height={48}
+                      className="rounded-full"
+                    />
+                  )}
                   <div>
                     <CardTitle className="text-lg">
                       <a
@@ -166,18 +168,18 @@ export function SearchResults({ channels, isLoading }: SearchResultsProps) {
                   <div>
                     <p className="text-muted-foreground">Subscribers</p>
                     <p className="font-medium">
-                      {channel.statistics.hiddenSubscriberCount
+                      {channel.statistics.subscriberCount === 0
                         ? 'Hidden'
-                        : formatNumber(parseInt(channel.statistics.subscriberCount))}
+                        : formatNumber(channel.statistics.subscriberCount)}
                     </p>
                   </div>
                   <div>
                     <p className="text-muted-foreground">Videos</p>
-                    <p className="font-medium">{formatNumber(parseInt(channel.statistics.videoCount))}</p>
+                    <p className="font-medium">{formatNumber(channel.statistics.videoCount)}</p>
                   </div>
                   <div>
                     <p className="text-muted-foreground">Views</p>
-                    <p className="font-medium">{formatNumber(parseInt(channel.statistics.viewCount))}</p>
+                    <p className="font-medium">{formatNumber(channel.statistics.viewCount)}</p>
                   </div>
                   <div>
                     <p className="text-muted-foreground">Joined</p>

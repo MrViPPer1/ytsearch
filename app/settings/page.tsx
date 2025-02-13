@@ -200,7 +200,7 @@ export default function SettingsPage() {
       toast({
         variant: 'destructive',
         title: 'Error',
-        description: 'Failed to refresh quota information',
+        description: error instanceof Error ? error.message : 'Failed to refresh quota information',
       });
     }
   };

@@ -2,7 +2,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { gzip, unzip } from 'zlib';
 import { promisify } from 'util';
-import { ApiKey, SearchHistory, ExcludedChannel, SearchFilters, YoutubeChannel, OptimizedChannel } from '@/types/youtube';
+import { ApiKey, SearchHistory, ExcludedChannel, SearchFilters, YoutubeChannel } from '@/types/youtube';
 import { format } from 'date-fns';
 
 const gzipAsync = promisify(gzip);
@@ -25,10 +25,6 @@ const EXCLUDED_CHANNELS_FILE = path.join(DATA_DIR, 'excluded-channels.json');
 const PAGE_TOKENS_FILE = path.join(DATA_DIR, 'page-tokens.json');
 const BACKUP_DIR = path.join(DATA_DIR, 'backups');
 
-// Maximum number of searches to keep
-const MAX_SEARCHES = 1000;
-// Maximum age of searches in days
-const MAX_SEARCH_AGE_DAYS = 30;
 // Maximum searches per page for pagination
 const MAX_SEARCHES_PER_PAGE = 50;
 
@@ -133,7 +129,7 @@ async function writeCompressedJsonFile(filePath: string, data: any) {
 }
 
 // Check if quota should be reset
-function shouldResetQuota(lastUsed: Date): boolean {
+function shouldResetQuota(lastUsed: Date | string): boolean {
   const now = new Date();
   const lastUsedDate = new Date(lastUsed);
   

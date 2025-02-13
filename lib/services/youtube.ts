@@ -4,7 +4,6 @@ import {
   getValidApiKey, 
   updateQuotaUsage, 
   isChannelExcluded,
-  storePageToken,
   getPageToken,
   generateSearchKey
 } from './storage';

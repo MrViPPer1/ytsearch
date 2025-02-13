@@ -7,7 +7,6 @@ import { SearchForm } from './search-form';
 import { SearchResults } from './search-results';
 import { useToast } from '@/components/ui/use-toast';
 import { Button } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/checkbox';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 
 export default function SearchPage() {
