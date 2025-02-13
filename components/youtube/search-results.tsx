@@ -37,11 +37,11 @@ export function SearchResults({ channels, isLoading }: SearchResultsProps) {
         title: 'Success',
         description: 'Channel added to exclusion list',
       });
-    } catch (error) {
+    } catch (err) {
       toast({
         variant: 'destructive',
         title: 'Error',
-        description: error instanceof Error ? error.message : 'Failed to exclude channel',
+        description: err instanceof Error ? err.message : 'Failed to exclude channel',
       });
     }
   };

@@ -53,7 +53,7 @@ export function ExcludedChannels() {
   // Load excluded channels on component mount
   useEffect(() => {
     loadExcludedChannels();
-  }, [loadExcludedChannels]);
+  }, []);
 
   const onSubmit = async (values: ChannelFormValues) => {
     try {
@@ -73,11 +73,11 @@ export function ExcludedChannels() {
         title: 'Success',
         description: 'Channel added to exclusion list',
       });
-    } catch (error) {
+    } catch (err) {
       toast({
         variant: 'destructive',
         title: 'Error',
-        description: error instanceof Error ? error.message : 'Failed to add channel',
+        description: err instanceof Error ? err.message : 'Failed to add channel',
       });
     } finally {
       setIsLoading(false);

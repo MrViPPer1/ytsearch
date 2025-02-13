@@ -8,6 +8,7 @@
 [build.environment]
   NEXT_USE_NETLIFY_EDGE = "true"
   NEXT_FORCE_EDGE_IMAGES = "true"
+  NODE_VERSION = "18"
 
 # Rewrite rule to handle Next.js routes
 [[redirects]]

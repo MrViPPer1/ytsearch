@@ -117,7 +117,7 @@ function validateJsonString(jsonString: string): boolean {
 }
 
 // Helper function to safely write compressed JSON
-async function writeCompressedJsonFile(filePath: string, data: any) {
+async function writeCompressedJsonFile(filePath: string, data: unknown) {
   try {
     const jsonString = JSON.stringify(data);
     const compressed = await compressData(jsonString);

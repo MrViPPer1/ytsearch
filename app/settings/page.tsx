@@ -55,8 +55,8 @@ export default function SettingsPage() {
         ]);
 
         if (!keysResponse.ok || !quotaResponse.ok) {
-          const error = await keysResponse.json();
-          throw new Error(error.error || 'Failed to load data');
+          const errorData = await keysResponse.json();
+          throw new Error(errorData.error || 'Failed to load data');
         }
 
         const [keys, quota] = await Promise.all([

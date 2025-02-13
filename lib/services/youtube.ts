@@ -52,7 +52,7 @@ export class YouTubeService {
     let quotaUsed = 0;
     let estimatedQuota = 0;
     let allChannels: youtube_v3.Schema$Channel[] = [];
-    let lastSearchResponse: any = null;
+    let lastSearchResponse: youtube_v3.Schema$SearchListResponse | null = null;
     
     try {
       const searchKey = generateSearchKey(filters);
