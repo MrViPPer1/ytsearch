@@ -89,40 +89,13 @@ async function readCompressedJsonFile<T>(filePath: string, defaultValue: T): Pro
   }
 }
 
-// Helper function to validate JSON string
-function validateJsonString(jsonString: string): boolean {
-  try {
-    const parsed = JSON.parse(jsonString);
-    
-    // Ensure the root is an array for our data files
-    if (!Array.isArray(parsed)) {
-      return false;
-    }
-    
-    // Check for duplicate closing brackets
-    const trimmed = jsonString.trim();
-    if (trimmed.endsWith(']]')) {
-      return false;
-    }
-    
-    // Count brackets in the cleaned string
-    const cleanedString = trimmed.replace(/\s+/g, '');
-    const openBrackets = (cleanedString.match(/\[/g) || []).length;
-    const closeBrackets = (cleanedString.match(/\]/g) || []).length;
-    
-    return openBrackets === closeBrackets && openBrackets === 1;
-  } catch {
-    return false;
-  }
-}
-
 // Helper function to safely write compressed JSON
 async function writeCompressedJsonFile(filePath: string, data: unknown) {
   try {
     const jsonString = JSON.stringify(data);
     const compressed = await compressData(jsonString);
     await fs.writeFile(filePath, compressed);
-  } catch (error) {
+  } catch (error: unknown) {
     console.error(`Error writing compressed file ${filePath}:`, error);
     throw error;
   }

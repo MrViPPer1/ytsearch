@@ -160,14 +160,6 @@ export function QuotaDisplay() {
       {quotaInfo.map((info) => {
         const usagePercentage = (info.quotaUsed / info.quotaLimit) * 100;
         const resetDate = new Date(info.resetTime);
-        const formattedResetTime = resetDate.toLocaleString('en-US', {
-          weekday: 'long',
-          month: 'long',
-          day: 'numeric',
-          hour: 'numeric',
-          minute: 'numeric',
-          timeZoneName: 'short',
-        });
 
         return (
           <Card key={info.apiKeyId} className="w-full">
