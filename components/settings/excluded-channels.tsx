@@ -53,7 +53,7 @@ export function ExcludedChannels() {
   // Load excluded channels on component mount
   useEffect(() => {
     loadExcludedChannels();
-  }, []);  // We can disable the exhaustive-deps rule here since we want this to run only once
+  }, [loadExcludedChannels]);
 
   const onSubmit = async (values: ChannelFormValues) => {
     try {

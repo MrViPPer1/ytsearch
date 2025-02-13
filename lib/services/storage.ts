@@ -35,6 +35,21 @@ interface PageTokenEntry {
   timestamp: number;
 }
 
+interface YouTubeChannelData {
+  id: string;
+  title: string;
+  customUrl?: string | null;
+  statistics: {
+    subscriberCount: number;
+    videoCount: number;
+    viewCount: number;
+  };
+  email?: string | null;
+  country?: string | null;
+  keywords?: string[] | null;
+  publishedAt: string;
+}
+
 // Helper function to compress data
 async function compressData(data: string): Promise<Buffer> {
   return gzipAsync(Buffer.from(data));
@@ -224,7 +239,7 @@ async function cleanupOldSearches(history: SearchHistory[]): Promise<SearchHisto
 }
 
 // Optimize channel data for storage
-function optimizeChannelData(channel: any) {
+function optimizeChannelData(channel: YouTubeChannelData) {
   return {
     id: channel.id,
     title: channel.title,
