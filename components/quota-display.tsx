@@ -179,6 +179,7 @@ export function QuotaDisplay() {
                   <span className="ml-2 text-sm text-red-500">(Quota Exceeded)</span>
                 )}
               </CardTitle>
+              <p className="text-sm text-muted-foreground">Resets on {formattedResetTime}</p>
             </CardHeader>
             <CardContent>
               <div className="space-y-4">

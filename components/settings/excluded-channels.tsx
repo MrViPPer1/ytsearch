@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -35,7 +35,7 @@ export function ExcludedChannels() {
     },
   });
 
-  const loadExcludedChannels = async () => {
+  const loadExcludedChannels = useCallback(async () => {
     try {
       const response = await fetch('/api/excluded-channels');
       if (!response.ok) throw new Error('Failed to load excluded channels');
@@ -48,7 +48,7 @@ export function ExcludedChannels() {
         description: 'Failed to load excluded channels',
       });
     }
-  };
+  }, [toast]);
 
   // Load excluded channels on component mount
   useEffect(() => {
