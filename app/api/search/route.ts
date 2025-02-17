@@ -25,20 +25,6 @@ export async function POST(request: Request) {
     // Store search history
     if (!filters.page || filters.page === 1) {
       // For initial search, store with all filters and initial results
-      const optimizedChannels: OptimizedChannel[] = result.channels.map(channel => ({
-        id: channel.id,
-        title: channel.title,
-        customUrl: channel.customUrl || '',
-        subscribers: channel.statistics.subscriberCount,
-        videos: channel.statistics.videoCount,
-        views: channel.statistics.viewCount,
-        email: channel.email || '',
-        country: channel.country || '',
-        keywords: channel.keywords?.join('|') || '',
-        publishedAt: channel.publishedAt,
-        thumbnailUrl: channel.thumbnails.default?.url
-      }));
-
       await addSearchHistory({
         filters: {
           ...filters,
@@ -50,19 +36,6 @@ export async function POST(request: Request) {
       console.log('Initial search history stored');
     } else if (result.channels.length > 0) {
       // Update existing history with additional results when loading more
-      const optimizedChannels: OptimizedChannel[] = result.channels.map(channel => ({
-        id: channel.id,
-        title: channel.title,
-        customUrl: channel.customUrl || '',
-        subscribers: channel.statistics.subscriberCount,
-        videos: channel.statistics.videoCount,
-        views: channel.statistics.viewCount,
-        email: channel.email || '',
-        country: channel.country || '',
-        keywords: channel.keywords?.join('|') || '',
-        publishedAt: channel.publishedAt,
-        thumbnailUrl: channel.thumbnails.default?.url
-      }));
       await updateSearchHistory(filters.query, result.channels);
       console.log('Search history updated with additional results');
     }
