@@ -6,8 +6,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { formatNumber, formatDate } from '@/lib/utils';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
-import { Ban } from 'lucide-react';
+import { Ban, Trash2 } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
+import { useState, useEffect } from 'react';
 
 interface SearchResultsProps {
   channels: YoutubeChannel[];
@@ -16,6 +17,12 @@ interface SearchResultsProps {
 
 export function SearchResults({ channels, isLoading }: SearchResultsProps) {
   const { toast } = useToast();
+  const [visibleChannels, setVisibleChannels] = useState(channels);
+
+  // Update visible channels when the channels prop changes
+  useEffect(() => {
+    setVisibleChannels(channels);
+  }, [channels]);
 
   const excludeChannel = async (channel: YoutubeChannel) => {
     try {
@@ -26,12 +33,15 @@ export function SearchResults({ channels, isLoading }: SearchResultsProps) {
           id: channel.id,
           title: channel.title,
           customUrl: channel.customUrl,
-          thumbnailUrl: channel.thumbnails.default.url,
+          thumbnailUrl: channel.thumbnails.default?.url,
           subscriberCount: channel.statistics.subscriberCount,
         }),
       });
 
       if (!response.ok) throw new Error('Failed to exclude channel');
+
+      // Remove the channel from the visible list
+      setVisibleChannels(current => current.filter(c => c.id !== channel.id));
 
       toast({
         title: 'Success',
@@ -49,7 +59,7 @@ export function SearchResults({ channels, isLoading }: SearchResultsProps) {
   const excludeAllChannels = async () => {
     try {
       // Add all channels to exclusion list
-      await Promise.all(channels.map(channel => 
+      await Promise.all(visibleChannels.map(channel => 
         fetch('/api/excluded-channels', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -57,11 +67,14 @@ export function SearchResults({ channels, isLoading }: SearchResultsProps) {
             id: channel.id,
             title: channel.title,
             customUrl: channel.customUrl,
-            thumbnailUrl: channel.thumbnails.default.url,
+            thumbnailUrl: channel.thumbnails.default?.url,
             subscriberCount: channel.statistics.subscriberCount,
           }),
         }).catch(() => null) // Ignore individual failures
       ));
+
+      // Clear all visible channels
+      setVisibleChannels([]);
 
       toast({
         title: 'Success',
@@ -72,6 +85,27 @@ export function SearchResults({ channels, isLoading }: SearchResultsProps) {
         variant: 'destructive',
         title: 'Error',
         description: 'Failed to exclude all channels',
+      });
+    }
+  };
+
+  const clearExcludedChannels = async () => {
+    try {
+      const response = await fetch('/api/excluded-channels/clear', {
+        method: 'DELETE',
+      });
+
+      if (!response.ok) throw new Error('Failed to clear excluded channels');
+
+      toast({
+        title: 'Success',
+        description: 'All channels removed from exclusion list',
+      });
+    } catch (error) {
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: 'Failed to clear excluded channels',
       });
     }
   };
@@ -96,16 +130,12 @@ export function SearchResults({ channels, isLoading }: SearchResultsProps) {
     );
   }
 
-  if (Array.isArray(channels) && channels.length === 0) {
+  if (!visibleChannels?.length) {
     return (
       <div className="text-center py-8">
         <p className="text-muted-foreground">No channels found matching your criteria.</p>
       </div>
     );
-  }
-
-  if (!Array.isArray(channels)) {
-    return null;
   }
 
   return (
@@ -122,20 +152,20 @@ export function SearchResults({ channels, isLoading }: SearchResultsProps) {
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        {channels.map((channel) => (
-          <Card key={channel.id} className="overflow-hidden">
+        {visibleChannels.map((channel, index) => (
+          <Card key={`${channel.id}-${index}`} className="overflow-hidden">
             <CardHeader>
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-4">
                   <Image
-                    src={channel.thumbnails.default.url}
+                    src={channel.thumbnails.default?.url || ''}
                     alt={channel.title}
                     width={48}
                     height={48}
                     className="rounded-full"
                   />
                   <div>
-                    <CardTitle className="text-lg">
+                    <CardTitle>
                       <a
                         href={`https://youtube.com/channel/${channel.id}`}
                         target="_blank"
@@ -166,18 +196,18 @@ export function SearchResults({ channels, isLoading }: SearchResultsProps) {
                   <div>
                     <p className="text-muted-foreground">Subscribers</p>
                     <p className="font-medium">
-                      {channel.statistics.hiddenSubscriberCount
+                      {channel.statistics.subscriberCount.toString()
                         ? 'Hidden'
-                        : formatNumber(parseInt(channel.statistics.subscriberCount))}
+                        : formatNumber(channel.statistics.subscriberCount)}
                     </p>
                   </div>
                   <div>
                     <p className="text-muted-foreground">Videos</p>
-                    <p className="font-medium">{formatNumber(parseInt(channel.statistics.videoCount))}</p>
+                    <p className="font-medium">{formatNumber(channel.statistics.videoCount)}</p>
                   </div>
                   <div>
                     <p className="text-muted-foreground">Views</p>
-                    <p className="font-medium">{formatNumber(parseInt(channel.statistics.viewCount))}</p>
+                    <p className="font-medium">{formatNumber(channel.statistics.viewCount)}</p>
                   </div>
                   <div>
                     <p className="text-muted-foreground">Joined</p>

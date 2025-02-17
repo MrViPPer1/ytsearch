@@ -9,6 +9,7 @@ import { useToast } from '@/components/ui/use-toast';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { useForm } from 'react-hook-form';
 
 export default function SearchPage() {
   const [isLoading, setIsLoading] = useState(false);
@@ -25,25 +26,55 @@ export default function SearchPage() {
   const router = useRouter();
   const { toast } = useToast();
   const lastSearchKey = useRef<string>('');
+  const initialSearchDone = useRef(false);
+  const form = useForm();
+
+  // Add this new useEffect to handle initial search from URL parameters
+  useEffect(() => {
+    const params = Object.fromEntries(searchParams);
+    if (params.query && !initialSearchDone.current) {
+      initialSearchDone.current = true;
+      const filters: SearchFilters = {
+        type: 'channel',
+        query: params.query,
+        minSubscribers: params.minSubscribers ? parseInt(params.minSubscribers) : undefined,
+        maxSubscribers: params.maxSubscribers ? parseInt(params.maxSubscribers) : undefined,
+        lastUploadDays: params.lastUploadDays,
+        hasEmail: params.hasEmail === 'true',
+        showNewChannelsOnly: params.showNewChannelsOnly === 'true',
+        category: params.category,
+        country: params.country,
+        language: params.language,
+        maxResults: params.maxResults ? parseInt(params.maxResults) : undefined,
+        page: 1,
+        loadAll: loadAll
+      };
+      handleSearch(filters);
+    }
+  }, []);  // Remove searchParams from dependencies
 
   // Update quota warning when maxResults or loadAll changes
   useEffect(() => {
-    const params = Object.fromEntries(searchParams);
-    const maxResults = params.maxResults ? parseInt(params.maxResults) : undefined;
+    const maxResults = form.watch('maxResults');
+    const customMaxResults = form.watch('customMaxResults');
     
-    if (maxResults) {
-      setCurrentMaxResults(maxResults);
-    }
+    const totalResults = maxResults === 'custom' 
+      ? customMaxResults 
+      : maxResults 
+        ? parseInt(maxResults) 
+        : 50;
     
-    if (maxResults && maxResults > 50) {
-      const estimatedQuota = Math.ceil(maxResults / 50) * 101;
-      setQuotaWarning(`It will use ${estimatedQuota} points if you want to search for ${maxResults} channels`);
+    if (totalResults > 50) {
+      const estimatedQuota = Math.ceil(totalResults / 50) * 101;
+      setQuotaWarning(`It will use ${estimatedQuota} points if you want to search for ${totalResults} channels`);
       setShowLoadAll(true);
+      setCurrentMaxResults(totalResults);
     } else {
       setQuotaWarning(null);
       setShowLoadAll(false);
+      setCurrentMaxResults(50);
     }
-  }, [searchParams]);
+  }, [form.watch('maxResults'), form.watch('customMaxResults')]);
 
   // Handle load all change
   const handleLoadAllChange = (checked: boolean) => {
@@ -69,25 +100,25 @@ export default function SearchPage() {
         setTotalResults(0);
       }
 
-      // Prevent duplicate searches
-      const searchKey = `${filters.query}-${filters.page}-${Date.now()}`;
-      if (searchKey === lastSearchKey.current) {
-        setIsLoading(false);
-        return;
-      }
-      lastSearchKey.current = searchKey;
+      // Ensure type is set and create search filters
+      const maxResults = filters.maxResults || 50;
+      const searchFilters = {
+        ...filters,
+        type: 'channel' as const,
+        page,
+        loadAll: loadAll && page === 1,
+        // For initial search, limit to 50 unless loadAll is true
+        maxResults: page === 1 && !loadAll && maxResults > 50 ? 50 : maxResults
+      };
 
-      console.log('Making API request...');
+      // Make the API request
+      console.log('Making API request with filters:', searchFilters);
       const response = await fetch('/api/search', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          ...filters,
-          page,
-          loadAll: loadAll && page === 1,
-        }),
+        body: JSON.stringify(searchFilters),
       });
 
       console.log('API response status:', response.status);
@@ -101,11 +132,27 @@ export default function SearchPage() {
         throw new Error(data.error || 'Failed to search channels');
       }
 
+      // Update state with results
       const newChannels = appendResults ? [...channels, ...data.channels] : data.channels;
       setChannels(newChannels);
-      setHasMore(data.pagination.hasMore);
-      setTotalResults(data.pagination.totalResults);
+      
+      // Calculate total requested results from filters or URL params
+      const requestedTotal = filters.maxResults || parseInt(searchParams.get('maxResults') || '50');
+      
+      setHasMore(data.pagination.hasMore && newChannels.length < requestedTotal);
+      setTotalResults(requestedTotal);
       setCurrentPage(data.pagination.currentPage);
+
+      // Update the URL only after successful search
+      if (!appendResults) {
+        const params = new URLSearchParams();
+        Object.entries(filters).forEach(([key, value]) => {
+          if (value !== undefined && value !== '' && value !== 'all' && key !== 'page' && key !== 'loadAll' && key !== 'type') {
+            params.set(key, value.toString());
+          }
+        });
+        router.push(`?${params.toString()}`, { scroll: false });
+      }
 
       if (data.channels.length === 0) {
         toast({
@@ -113,15 +160,6 @@ export default function SearchPage() {
           description: 'No channels found matching your criteria.',
         });
       }
-
-      // Update URL with search parameters
-      const params = new URLSearchParams();
-      Object.entries(filters).forEach(([key, value]) => {
-        if (value !== undefined && value !== '' && value !== 'all') {
-          params.set(key, value.toString());
-        }
-      });
-      router.push(`?${params.toString()}`);
     } catch (err) {
       console.error('Search error:', err);
       const message = err instanceof Error ? err.message : 'An error occurred';
@@ -139,7 +177,12 @@ export default function SearchPage() {
   const handleLoadMore = async () => {
     if (!isLoading && hasMore) {
       const params = Object.fromEntries(searchParams);
+      const currentMaxResults = parseInt(params.maxResults) || 50;
+      const remainingResults = currentMaxResults - channels.length;
+      
+      // Only load up to the requested number of results
       const filters: SearchFilters = {
+        type: 'channel',
         query: params.query,
         minSubscribers: params.minSubscribers ? parseInt(params.minSubscribers) : undefined,
         maxSubscribers: params.maxSubscribers ? parseInt(params.maxSubscribers) : undefined,
@@ -148,7 +191,7 @@ export default function SearchPage() {
         category: params.category,
         country: params.country,
         language: params.language,
-        maxResults: params.maxResults ? parseInt(params.maxResults) : undefined,
+        maxResults: Math.min(50, remainingResults), // Load at most 50 more, or less if we're near the target
         page: currentPage + 1
       };
       await handleSearch(filters, currentPage + 1, true);
@@ -206,7 +249,7 @@ export default function SearchPage() {
                 <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent" />
               </>
             ) : (
-              `Show More (${channels.length}/${Math.min(totalResults, currentMaxResults)})`
+              `Show More (${channels.length}/${totalResults})`
             )}
           </Button>
         </div>

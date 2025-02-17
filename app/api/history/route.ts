@@ -1,11 +1,12 @@
 import { NextResponse } from 'next/server';
-import { getSearchHistory, deleteSearchHistory } from '@/lib/services/storage';
+import { getSearchHistory, deleteSearchHistory, addSearchHistory, clearAllHistory } from '@/lib/services/storage';
+import { SearchHistory } from '@/types/youtube';
 
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const page = parseInt(searchParams.get('page') || '1');
-    const limit = parseInt(searchParams.get('limit') || '10');
+    const limit = parseInt(searchParams.get('limit') || '50');
 
     const { history, total } = await getSearchHistory(page, limit);
 
@@ -23,13 +24,18 @@ export async function GET(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
-    const { id } = await request.json();
+    const data = await request.json();
 
-    if (!id) {
+    if (data.deleteAll) {
+      await clearAllHistory();
+      return NextResponse.json({ message: 'All history deleted successfully' });
+    }
+
+    if (!data.id) {
       return NextResponse.json({ error: 'History ID is required' }, { status: 400 });
     }
 
-    const success = await deleteSearchHistory(id);
+    const success = await deleteSearchHistory(data.id);
     if (!success) {
       return NextResponse.json({ error: 'History entry not found' }, { status: 404 });
     }
@@ -67,36 +73,36 @@ export async function POST(request: Request) {
           resultCount: entry.resultCount,
         };
 
-        // If no results, return just the search info
-        if (!entry.results?.length) {
-          return [Object.values(baseInfo).join(',')];
+        // If no channels, return just the search info
+        if (!entry.channels?.length) {
+          return [Object.values(baseInfo).join(';')];
         }
 
         // Return a row for each channel in the results
-        return entry.results.map(channel => {
+        return entry.channels.map(channel => {
           const channelInfo = {
             ...baseInfo,
             channelId: channel.id,
-            channelTitle: channel.title,
+            channelTitle: channel.title.replace(/[;"\n\r]/g, ' '),
             channelUrl: `https://youtube.com/channel/${channel.id}`,
-            subscribers: channel.statistics.subscriberCount,
-            videos: channel.statistics.videoCount,
-            views: channel.statistics.viewCount,
-            email: channel.email || '',
-            channelCountry: channel.country || '',
+            subscribers: channel.subscribers,
+            videos: channel.videos,
+            views: channel.views,
+            email: (channel.email || '').replace(/[;"\n\r]/g, ' '),
+            channelCountry: (channel.country || '').replace(/[;"\n\r]/g, ' '),
           };
-          return Object.values(channelInfo).join(',');
+          return Object.values(channelInfo).join(';');
         });
       });
 
       // Add header
       csvRows.unshift(
-        'Search ID,Timestamp,Query,Min Subscribers,Max Subscribers,Last Upload Days,Has Email,Country,Result Count,Channel ID,Channel Title,Channel URL,Subscribers,Videos,Views,Email,Channel Country'
+        'Search ID;Timestamp;Query;Min Subscribers;Max Subscribers;Last Upload Days;Has Email;Country;Result Count;Channel ID;Channel Title;Channel URL;Subscribers;Videos;Views;Email;Channel Country'
       );
 
-      return new NextResponse(csvRows.join('\n'), {
+      return new NextResponse('\uFEFF' + csvRows.join('\r\n'), {
         headers: {
-          'Content-Type': 'text/csv',
+          'Content-Type': 'text/csv;charset=utf-8',
           'Content-Disposition': `attachment; filename=search-history${id ? '-' + id : ''}.csv`,
         },
       });

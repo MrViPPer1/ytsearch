@@ -233,7 +233,20 @@ export default function SettingsPage() {
             >
               Google Cloud Console
             </a>
-            .
+            . <br/>
+            <div className="mt-2 p-3 bg-muted rounded-lg text-sm">
+              <p className="font-medium mb-1">Note about quota tracking:</p>
+              <p>The app tracks quota usage based on API calls made through the application. For actual quota usage and detailed analytics, please visit the{' '}
+                <a
+                  href="https://console.cloud.google.com/apis/dashboard"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-primary hover:underline"
+                >
+                  Google Cloud Console Quota Page
+                </a>
+              </p>
+            </div>
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -248,8 +261,8 @@ export default function SettingsPage() {
                     <FormControl>
                       <Input
                         {...field}
-                        type="password"
-                        placeholder="Enter your YouTube API key"
+                        type="text"
+                        placeholder="Enter your YouTube API key that starts with AIza"
                         disabled={isLoading}
                       />
                     </FormControl>
@@ -269,43 +282,81 @@ export default function SettingsPage() {
 
           {/* Total Quota Summary */}
           {quotaInfo.length > 0 && (
-            <div className="space-y-4 pt-4 border-t">
+            <div className="space-y-6 pt-6 border-t">
               <div className="flex items-center justify-between">
-                <h3 className="font-semibold">Total YouTube API Quota Usage</h3>
-                <Button variant="outline" size="sm" onClick={refreshQuota}>
+                <h3 className="text-xl font-semibold">Total YouTube API Quota Usage</h3>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={refreshQuota}
+                  className="shadow-sm hover:shadow transition-all"
+                >
                   <RefreshCw className="mr-2 h-4 w-4" />
                   Refresh Quota
                 </Button>
               </div>
-              <Progress value={totalUsagePercentage} className="h-2" />
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div>
-                  <p className="text-muted-foreground">Total Used</p>
-                  <p className="font-medium">{totalQuotaUsed.toLocaleString()} units ({totalUsagePercentage.toFixed(1)}%)</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground">Total Remaining</p>
-                  <p className="font-medium">{(totalQuotaLimit - totalQuotaUsed).toLocaleString()} units</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground">Total Limit</p>
-                  <p className="font-medium">{totalQuotaLimit.toLocaleString()} units</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground">Active Keys</p>
-                  <p className="font-medium">{quotaInfo.filter(info => info.remainingQuota > 0).length} of {quotaInfo.length}</p>
+
+              <div className="p-6 rounded-xl bg-gradient-to-b from-card/50 to-card shadow-lg border">
+                <div className="space-y-6">
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Total Usage</span>
+                      <span className={
+                        totalUsagePercentage > 90 
+                          ? 'text-destructive font-medium' 
+                          : totalUsagePercentage > 70 
+                            ? 'text-warning font-medium' 
+                            : 'text-success font-medium'
+                      }>{totalUsagePercentage.toFixed(1)}%</span>
+                    </div>
+                    <div className="h-3 rounded-full bg-muted/30 overflow-hidden shadow-inner">
+                      <div 
+                        className={`h-full transition-all rounded-full shadow-lg ${
+                          totalUsagePercentage > 90 
+                            ? 'bg-red-500' 
+                            : totalUsagePercentage > 70 
+                              ? 'bg-yellow-500' 
+                              : 'bg-green-500'
+                        }`}
+                        style={{ width: `${totalUsagePercentage}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-6">
+                    <div className="space-y-1">
+                      <p className="text-muted-foreground text-sm">Total Used</p>
+                      <p className="text-2xl font-semibold">{totalQuotaUsed.toLocaleString()}</p>
+                      <p className="text-xs text-muted-foreground">of {totalQuotaLimit.toLocaleString()} units</p>
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-muted-foreground text-sm">Remaining Quota</p>
+                      <p className="text-2xl font-semibold">{(totalQuotaLimit - totalQuotaUsed).toLocaleString()}</p>
+                      <p className="text-xs text-muted-foreground">units available</p>
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-muted-foreground text-sm">Active API Keys</p>
+                      <p className="text-2xl font-semibold">{quotaInfo.filter(info => info.remainingQuota > 0).length}</p>
+                      <p className="text-xs text-muted-foreground">of {quotaInfo.length} total keys</p>
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-muted-foreground text-sm">Resets At</p>
+                      <p className="text-2xl font-semibold">12 AM</p>
+                      <p className="text-xs text-muted-foreground">Pacific Time (PT)</p>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
           )}
 
           {/* Active API Keys */}
-          <div className="space-y-4 pt-4 border-t">
-            <h3 className="font-semibold">Active API Keys</h3>
+          <div className="space-y-6 pt-6 border-t">
+            <h3 className="text-xl font-semibold">API Keys</h3>
             {apiKeys.length === 0 ? (
               <p className="text-sm text-muted-foreground">No API keys added yet.</p>
             ) : (
-              <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {apiKeys.map((key) => {
                   const keyQuota = quotaInfo.find(q => q.apiKeyId === key.id);
                   const usagePercentage = keyQuota 
@@ -315,47 +366,108 @@ export default function SettingsPage() {
                   return (
                     <div
                       key={key.id}
-                      className="space-y-4 p-4 border rounded-lg"
+                      className={`group relative rounded-xl overflow-hidden transition-all duration-200 
+                        shadow-lg hover:shadow-xl border bg-gradient-to-b from-card/50 to-card 
+                        ${usagePercentage > 90 
+                          ? 'border-destructive/40' 
+                          : usagePercentage > 70 
+                            ? 'border-warning/40' 
+                            : 'border-success/40'}`
+                      }
                     >
-                      <div className="flex items-center justify-between">
-                        <div className="space-y-1">
-                          <p className="font-medium">
-                            •••••{key.key.slice(-6)}
-                            {keyQuota?.remainingQuota === 0 && (
-                              <span className="ml-2 text-sm text-red-500">(Quota Exceeded)</span>
-                            )}
-                          </p>
-                          <Progress value={usagePercentage} className="h-2" />
-                          <div className="grid grid-cols-2 gap-4 text-sm">
-                            <div>
-                              <p className="text-muted-foreground">Quota Used</p>
-                              <p className="font-medium">
-                                {keyQuota?.quotaUsed.toLocaleString() || key.quotaUsed.toLocaleString()} units ({usagePercentage.toFixed(1)}%)
+                      {/* Status Bar */}
+                      <div className={`absolute top-0 left-0 w-full h-1.5 ${
+                        key.isActive 
+                          ? usagePercentage > 90 
+                            ? 'bg-destructive' 
+                            : usagePercentage > 70 
+                              ? 'bg-warning' 
+                              : 'bg-success'
+                          : 'bg-muted'
+                      }`} />
+
+                      <div className="p-6 space-y-6">
+                        <div className="space-y-4">
+                          <div className="flex items-start justify-between">
+                            <div className="space-y-1">
+                              <p className="font-semibold tracking-wide">
+                                AIzaSy...{key.key.slice(-4)}
                               </p>
-                            </div>
-                            <div>
-                              <p className="text-muted-foreground">Last Used / Reset</p>
-                              <p className="font-medium">
-                                {new Date(key.lastUsed).toLocaleDateString()} / {new Date().getHours() >= 7 ? 'Tomorrow' : 'Today'} at 12 AM PT
+                              <p className="text-xs text-muted-foreground">
+                                Added on {new Date(key.lastUsed).toLocaleDateString()}
                               </p>
                             </div>
                           </div>
+
+                          <div className="space-y-2">
+                            <div className="flex justify-between text-sm">
+                              <span className="text-muted-foreground">Estimated Quota Usage</span>
+                              <span className={
+                                usagePercentage > 90 
+                                  ? 'text-destructive font-medium' 
+                                  : usagePercentage > 70 
+                                    ? 'text-warning font-medium' 
+                                    : 'text-success font-medium'
+                              }>{usagePercentage.toFixed(1)}%</span>
+                            </div>
+                            <div className="h-2 rounded-full bg-muted/30 overflow-hidden shadow-inner">
+                              <div 
+                                className={`h-full transition-all rounded-full shadow-lg ${
+                                  usagePercentage > 90 
+                                    ? 'bg-red-500' 
+                                    : usagePercentage > 70 
+                                      ? 'bg-yellow-500' 
+                                      : 'bg-green-500'
+                                }`}
+                                style={{ width: `${usagePercentage}%` }}
+                              />
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-4 pt-2">
+                            <div>
+                              <p className="text-muted-foreground text-xs">Used / Total</p>
+                              <p className="font-medium">
+                                {keyQuota?.quotaUsed.toLocaleString() || key.quotaUsed.toLocaleString()} / 10,000
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-muted-foreground text-xs">Resets At</p>
+                              <p className="font-medium">
+                                {new Date().getHours() >= 7 ? 'Tomorrow' : 'Today'} 12 AM PT
+                              </p>
+                            </div>
+                          </div>
+
+                          {keyQuota?.remainingQuota === 0 && (
+                            <div className="text-xs font-medium text-destructive bg-destructive/10 px-3 py-2 rounded-lg">
+                              Quota Exceeded - Switch to Another Key
+                            </div>
+                          )}
                         </div>
-                        <div className="flex items-center gap-2">
+
+                        <div className="flex items-center gap-3 pt-2">
                           <Button
-                            variant="ghost"
-                            size="icon"
+                            variant={key.isActive ? "default" : "outline"}
+                            size="sm"
                             onClick={() => toggleApiKey(key.id, !key.isActive)}
-                            className={key.isActive ? 'text-green-500' : 'text-muted-foreground'}
+                            className={`flex-1 shadow-sm hover:shadow ${
+                              key.isActive 
+                                ? 'bg-green-500 hover:bg-green-600 text-white' 
+                                : 'border-red-500 text-red-500 hover:bg-red-50'
+                            }`}
                           >
-                            <Power className="h-4 w-4" />
+                            <Power className={`h-4 w-4 mr-2 ${key.isActive ? 'text-white' : 'text-red-500'}`} />
+                            {key.isActive ? 'Active' : 'Inactive'}
                           </Button>
                           <Button
-                            variant="ghost"
-                            size="icon"
+                            variant="destructive"
+                            size="sm"
                             onClick={() => deleteApiKey(key.id)}
+                            className="shadow-sm hover:shadow flex-1"
                           >
-                            <Trash2 className="h-4 w-4" />
+                            <Trash2 className="h-4 w-4 mr-2" />
+                            Delete API
                           </Button>
                         </div>
                       </div>

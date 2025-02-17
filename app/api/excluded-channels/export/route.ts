@@ -8,31 +8,48 @@ export async function GET(request: Request) {
     const channels = await getExcludedChannels();
 
     if (format === 'json') {
-      return new NextResponse(JSON.stringify(channels, null, 2), {
+      const formattedChannels = channels.map(channel => ({
+        id: channel.id,
+        title: channel.title,
+        url: `https://youtube.com/channel/${channel.id}`,
+        customUrl: channel.customUrl ? `@${channel.customUrl.replace(/^@+/, '')}` : '',
+        subscriberCount: channel.subscriberCount,
+        excludedAt: channel.excludedAt
+      }));
+
+      return new NextResponse(JSON.stringify(formattedChannels, null, 2), {
         headers: {
           'Content-Type': 'application/json',
           'Content-Disposition': 'attachment; filename=excluded-channels.json',
         },
       });
     } else if (format === 'csv') {
-      const headers = ['id', 'title', 'customUrl', 'thumbnailUrl', 'subscriberCount', 'addedAt'];
+      const headers = [
+        'Channel ID',
+        'Channel Title',
+        'Channel URL',
+        'Custom URL',
+        'Subscriber Count',
+        'Excluded Date'
+      ];
+
       const rows = channels.map(channel => [
         channel.id,
         `"${channel.title.replace(/"/g, '""')}"`,
-        channel.customUrl ? `"${channel.customUrl.replace(/"/g, '""')}"` : '',
-        channel.thumbnailUrl || '',
+        `https://youtube.com/channel/${channel.id}`,
+        channel.customUrl ? `"@${channel.customUrl.replace(/^@+/, '').replace(/"/g, '""')}"` : '',
         channel.subscriberCount || '',
-        channel.addedAt.toISOString(),
+        new Date(channel.excludedAt).toISOString()
       ]);
 
       const csv = [
-        headers.join(','),
-        ...rows.map(row => row.join(',')),
-      ].join('\n');
+        headers.join(';'),
+        ...rows.map(row => row.join(';')),
+      ].join('\r\n');
 
-      return new NextResponse(csv, {
+      return new NextResponse('\uFEFF' + csv, {
         headers: {
-          'Content-Type': 'text/csv',
+          'Content-Type': 'text/csv;charset=utf-8',
           'Content-Disposition': 'attachment; filename=excluded-channels.csv',
         },
       });

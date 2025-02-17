@@ -21,10 +21,11 @@ export async function POST(request: Request) {
     const channel: ExcludedChannel = {
       id: data.id,
       title: data.title,
-      customUrl: data.customUrl,
+      customUrl: data.customUrl?.replace(/^@+/, ''),
       thumbnailUrl: data.thumbnailUrl,
       subscriberCount: data.subscriberCount,
       addedAt: new Date(),
+      excludedAt: new Date(),
     };
 
     await addExcludedChannel(channel);

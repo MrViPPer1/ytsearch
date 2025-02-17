@@ -86,7 +86,8 @@ async function readCompressedJsonFile<T>(filePath: string, defaultValue: T): Pro
   try {
     const compressedData = await fs.readFile(filePath);
     const data = await decompressData(compressedData);
-    return JSON.parse(data);
+    const parsed = JSON.parse(data);
+    return parsed as T || defaultValue;
   } catch (error) {
     console.error(`Error reading compressed file ${filePath}:`, error);
     return defaultValue;
@@ -123,7 +124,7 @@ function validateJsonString(jsonString: string): boolean {
 // Helper function to safely write compressed JSON
 async function writeCompressedJsonFile(filePath: string, data: any) {
   try {
-    const jsonString = JSON.stringify(data);
+    const jsonString = JSON.stringify(data, null, 2);
     const compressed = await compressData(jsonString);
     await fs.writeFile(filePath, compressed);
   } catch (error) {
@@ -133,7 +134,7 @@ async function writeCompressedJsonFile(filePath: string, data: any) {
 }
 
 // Check if quota should be reset
-function shouldResetQuota(lastUsed: Date): boolean {
+function shouldResetQuota(lastUsed: string | Date): boolean {
   const now = new Date();
   const lastUsedDate = new Date(lastUsed);
   
@@ -218,31 +219,57 @@ export async function deleteApiKey(id: string): Promise<boolean> {
 
 export async function getValidApiKey(): Promise<string> {
   const apiKeys = await getApiKeys();
-  const validKey = apiKeys.find(k => k.isActive && k.quotaUsed < 9900);
   
-  if (!validKey) {
-    throw new Error('YouTube API quota exceeded. Please try again tomorrow or add a new API key in settings.');
+  // First try to find an active key with remaining quota
+  const activeKey = apiKeys.find(key => key.isActive && key.quotaUsed < 9900);
+  
+  if (activeKey) {
+    return activeKey.key;
   }
+
+  // If no active key with quota is found, try to find the next available key
+  const availableKey = apiKeys.find(key => key.quotaUsed < 9900);
   
-  return validKey.key;
+  if (availableKey) {
+    // Activate this key and deactivate others
+    await Promise.all([
+      updateApiKey(availableKey.id, { isActive: true }),
+      ...apiKeys
+        .filter(k => k.id !== availableKey.id)
+        .map(k => updateApiKey(k.id, { isActive: false }))
+    ]);
+    return availableKey.key;
+  }
+
+  throw new Error('No API keys with remaining quota available. Please add a new API key or wait until the quota resets.');
 }
 
 export async function updateQuotaUsage(key: string, quotaUsed: number): Promise<void> {
   const apiKeys = await getApiKeys();
-  const index = apiKeys.findIndex(k => k.key === key);
+  const apiKey = apiKeys.find(k => k.key === key);
   
-  if (index !== -1) {
-    const currentQuota = typeof apiKeys[index].quotaUsed === 'number' ? apiKeys[index].quotaUsed : 0;
-    const newQuota = currentQuota + quotaUsed;
-    
-    apiKeys[index] = {
-      ...apiKeys[index],
-      quotaUsed: newQuota,
+  if (!apiKey) return;
+
+  const newQuotaUsed = apiKey.quotaUsed + quotaUsed;
+  
+  // If quota is exceeded, deactivate this key and try to switch to another one
+  if (newQuotaUsed >= 9900) {
+    await updateApiKey(apiKey.id, {
+      quotaUsed: newQuotaUsed,
+      isActive: false,
       lastUsed: new Date(),
-      isActive: newQuota < 9900,
-    };
-    
-    await fs.writeFile(API_KEYS_FILE, JSON.stringify(apiKeys, null, 2));
+    });
+
+    // Try to find and activate the next available key
+    const nextKey = apiKeys.find(k => k.id !== apiKey.id && k.quotaUsed < 9900);
+    if (nextKey) {
+      await updateApiKey(nextKey.id, { isActive: true });
+    }
+  } else {
+    await updateApiKey(apiKey.id, {
+      quotaUsed: newQuotaUsed,
+      lastUsed: new Date(),
+    });
   }
 }
 
@@ -255,7 +282,7 @@ async function cleanupOldSearches(history: SearchHistory[]): Promise<SearchHisto
 }
 
 // Optimize channel data for storage
-function optimizeChannelData(channel: any) {
+function optimizeChannelData(channel: YoutubeChannel): OptimizedChannel {
   return {
     id: channel.id,
     title: channel.title,
@@ -265,8 +292,9 @@ function optimizeChannelData(channel: any) {
     views: channel.statistics.viewCount,
     email: channel.email || '',
     country: channel.country || '',
-    keywords: (channel.keywords || []).join(','),
-    publishedAt: channel.publishedAt
+    keywords: channel.keywords?.join('|') || '',
+    publishedAt: channel.publishedAt,
+    thumbnailUrl: channel.thumbnails.default?.url
   };
 }
 
@@ -296,16 +324,34 @@ export async function getSearchHistory(page = 1, limit = MAX_SEARCHES_PER_PAGE):
   }
 }
 
+// Clear all search history
+export async function clearAllHistory(): Promise<void> {
+  await initializeFiles();
+  await writeCompressedJsonFile(SEARCH_HISTORY_FILE, []);
+}
+
 // Add new search to history with optimization
 export async function addSearchHistory(entry: { filters: SearchFilters; results: YoutubeChannel[] }): Promise<SearchHistory> {
-  const { history } = await getSearchHistory(1, Infinity);
+  await initializeFiles();
+  
+  // Read existing history
+  let existingHistory: SearchHistory[] = [];
+  try {
+    const compressedData = await fs.readFile(SEARCH_HISTORY_FILE);
+    const data = await decompressData(compressedData);
+    existingHistory = JSON.parse(data);
+  } catch (error) {
+    console.error('Error reading history file:', error);
+    // If there's an error reading the file, start with empty history
+    existingHistory = [];
+  }
   
   // Optimize channel data for storage
   const optimizedChannels = entry.results.map(optimizeChannelData);
   
   const newEntry: SearchHistory = {
     id: Date.now().toString(),
-    timestamp: new Date(),
+    timestamp: new Date().toISOString(),
     filters: entry.filters,
     resultCount: entry.results.length,
     channels: optimizedChannels,
@@ -324,16 +370,19 @@ export async function addSearchHistory(entry: { filters: SearchFilters; results:
     }
   };
   
-  // Add to start of array and maintain limit
-  history.unshift(newEntry);
-  const cleanHistory = await cleanupOldSearches(history);
+  // Add new entry to the beginning and maintain limit
+  const updatedHistory = [newEntry, ...existingHistory].slice(0, MAX_SEARCHES);
   
   // Create backup if enabled
   if (CONFIG.backupEnabled) {
     await createBackup();
   }
   
-  await writeCompressedJsonFile(SEARCH_HISTORY_FILE, cleanHistory);
+  // Write the updated history back to file
+  const jsonString = JSON.stringify(updatedHistory, null, 2);
+  const compressed = await compressData(jsonString);
+  await fs.writeFile(SEARCH_HISTORY_FILE, compressed);
+  
   return newEntry;
 }
 
@@ -367,7 +416,14 @@ export async function resetQuotaUsage(): Promise<void> {
 export async function getExcludedChannels(): Promise<ExcludedChannel[]> {
   try {
     const data = await fs.readFile(EXCLUDED_CHANNELS_FILE, 'utf-8');
-    return JSON.parse(data);
+    try {
+      return JSON.parse(data);
+    } catch (parseError) {
+      console.error('Error parsing excluded channels file:', parseError);
+      // If the file is corrupted, reset it
+      await fs.writeFile(EXCLUDED_CHANNELS_FILE, '[]');
+      return [];
+    }
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
       await fs.writeFile(EXCLUDED_CHANNELS_FILE, '[]');
@@ -378,12 +434,21 @@ export async function getExcludedChannels(): Promise<ExcludedChannel[]> {
 }
 
 export async function addExcludedChannel(channel: ExcludedChannel): Promise<void> {
-  const channels = await getExcludedChannels();
-  if (channels.some(c => c.id === channel.id)) {
-    throw new Error('Channel is already excluded');
+  try {
+    const channels = await getExcludedChannels();
+    if (channels.some(c => c.id === channel.id)) {
+      return; // Channel already excluded, silently return
+    }
+    channels.push({
+      ...channel,
+      addedAt: new Date().toISOString(),
+      excludedAt: new Date().toISOString()
+    });
+    await fs.writeFile(EXCLUDED_CHANNELS_FILE, JSON.stringify(channels, null, 2));
+  } catch (error) {
+    console.error('Error adding excluded channel:', error);
+    throw new Error('Failed to add channel to exclusion list');
   }
-  channels.push(channel);
-  await fs.writeFile(EXCLUDED_CHANNELS_FILE, JSON.stringify(channels, null, 2));
 }
 
 export async function removeExcludedChannel(id: string): Promise<void> {
@@ -418,15 +483,16 @@ export async function storePageToken(searchKey: string, page: number, token: str
   // Remove any existing tokens for this search and page
   const filteredTokens = tokens.filter(t => !(t.key === searchKey && t.page === page));
   
-  // Add the new token
-  filteredTokens.push({
+  // Create new token entry
+  const newToken: PageTokenEntry = {
     key: searchKey,
     page,
     token,
     timestamp: Date.now(),
-  });
+  };
   
-  await writeCompressedJsonFile(PAGE_TOKENS_FILE, filteredTokens);
+  // Add the new token and save
+  await writeCompressedJsonFile(PAGE_TOKENS_FILE, [...filteredTokens, newToken]);
 }
 
 // Get a stored page token
@@ -452,30 +518,28 @@ export function generateSearchKey(filters: SearchFilters): string {
 export async function exportHistoryToCSV(): Promise<string> {
   const { history } = await getSearchHistory(1, Infinity);
   
-  const rows: string[] = ['Search ID,Timestamp,Query,Min Subscribers,Max Subscribers,Last Upload Days,Has Email,Country,Language,Category,Channel ID,Channel Title,Custom URL,Subscribers,Videos,Views,Email,Channel Country,Keywords,Published At'];
+  const rows: string[] = ['Search ID,Timestamp,Query,Min Subscribers,Max Subscribers,Last Upload Days,Has Email,Country,Language,Channel ID,Channel Title,Custom URL,Subscribers,Videos,Views,Email,Channel Country,Keywords,Published At'];
   
   history.forEach(entry => {
-    const searchInfo = entry.exportData.searchInfo;
     entry.channels.forEach(channel => {
       rows.push([
         entry.id,
         new Date(entry.timestamp).toISOString(),
-        searchInfo.query,
-        searchInfo.minSubscribers || '',
-        searchInfo.maxSubscribers || '',
-        searchInfo.lastUploadDays || '',
-        searchInfo.hasEmail ? 'Yes' : 'No',
-        searchInfo.country || '',
-        searchInfo.language || '',
-        searchInfo.category || '',
+        `"${entry.filters.query.replace(/"/g, '""')}"`,
+        entry.filters.minSubscribers || '',
+        entry.filters.maxSubscribers || '',
+        entry.filters.lastUploadDays || '',
+        entry.filters.hasEmail ? 'Yes' : 'No',
+        entry.filters.country || '',
+        entry.filters.language || '',
         channel.id,
         `"${channel.title.replace(/"/g, '""')}"`,
         channel.customUrl,
         channel.subscribers,
         channel.videos,
         channel.views,
-        channel.email,
-        channel.country,
+        channel.email || '',
+        channel.country || '',
         `"${channel.keywords}"`,
         channel.publishedAt
       ].join(','));
@@ -487,7 +551,37 @@ export async function exportHistoryToCSV(): Promise<string> {
 
 export async function exportHistoryToJSON(): Promise<string> {
   const { history } = await getSearchHistory(1, Infinity);
-  return JSON.stringify(history.map(entry => entry.exportData), null, 2);
+  
+  const exportData = history.map(entry => ({
+    searchInfo: {
+      id: entry.id,
+      timestamp: new Date(entry.timestamp).toISOString(),
+      filters: {
+        query: entry.filters.query,
+        minSubscribers: entry.filters.minSubscribers,
+        maxSubscribers: entry.filters.maxSubscribers,
+        lastUploadDays: entry.filters.lastUploadDays,
+        hasEmail: entry.filters.hasEmail,
+        country: entry.filters.country,
+        language: entry.filters.language
+      }
+    },
+    channels: entry.channels.map(channel => ({
+      id: channel.id,
+      title: channel.title,
+      customUrl: channel.customUrl,
+      subscribers: channel.subscribers,
+      videos: channel.videos,
+      views: channel.views,
+      email: channel.email,
+      country: channel.country,
+      keywords: channel.keywords,
+      publishedAt: channel.publishedAt,
+      thumbnailUrl: channel.thumbnailUrl
+    }))
+  }));
+  
+  return JSON.stringify(exportData, null, 2);
 }
 
 // Get storage stats
@@ -646,4 +740,57 @@ export async function cleanupStorage(): Promise<{
     backupsRemoved,
     spaceFreed
   };
+}
+
+// Update existing search history with additional results
+export async function updateSearchHistory(query: string, newChannels: YoutubeChannel[]): Promise<boolean> {
+  await initializeFiles();
+  
+  try {
+    // Read existing history
+    const history = await readCompressedJsonFile<SearchHistory[]>(SEARCH_HISTORY_FILE, []);
+    
+    // Find the most recent entry with matching query
+    const entryIndex = history.findIndex(entry => entry.filters.query === query);
+    if (entryIndex === -1) return false;
+    
+    // Get the existing entry
+    const existingEntry = history[entryIndex];
+    
+    // Optimize new channel data
+    const optimizedNewChannels = newChannels.map(optimizeChannelData);
+    
+    // Create updated entry with unique channels (based on channel ID)
+    const uniqueChannels = [...existingEntry.channels];
+    optimizedNewChannels.forEach(newChannel => {
+      const existingIndex = uniqueChannels.findIndex(ch => ch.id === newChannel.id);
+      if (existingIndex === -1) {
+        uniqueChannels.push(newChannel);
+      }
+    });
+    
+    // Create updated entry
+    const updatedEntry: SearchHistory = {
+      ...existingEntry,
+      resultCount: uniqueChannels.length,
+      channels: uniqueChannels,
+      exportData: {
+        ...existingEntry.exportData,
+        channels: uniqueChannels
+      }
+    };
+    
+    // Create new history array with updated entry
+    const updatedHistory = history.map((entry, index) => 
+      index === entryIndex ? updatedEntry : entry
+    );
+    
+    // Write updated history back to file
+    await writeCompressedJsonFile(SEARCH_HISTORY_FILE, updatedHistory);
+    
+    return true;
+  } catch (error) {
+    console.error('Error updating search history:', error);
+    return false;
+  }
 } 

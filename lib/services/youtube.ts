@@ -76,7 +76,6 @@ export class YouTubeService {
           pageToken: currentPageToken,
           regionCode: filters.country,
           relevanceLanguage: filters.language,
-          videoCategoryId: filters.category,
         });
         
         lastSearchResponse = searchResponse; // Store for pagination
@@ -158,9 +157,9 @@ export class YouTubeService {
         .slice(0, desiredResults)
         .map(channel => {
           const countryCode = channel.snippet?.country || channel.brandingSettings?.channel?.country;
-          const customUrl = channel.snippet?.customUrl || '';
-          // Don't add @ if it already exists
-          const finalCustomUrl = customUrl.startsWith('@') ? customUrl : customUrl ? `@${customUrl}` : '';
+          const rawCustomUrl = channel.snippet?.customUrl || '';
+          // Store custom URL without @ symbol
+          const cleanCustomUrl = rawCustomUrl.replace(/^@+/, '');
 
           return {
             id: channel.id!,
@@ -183,7 +182,7 @@ export class YouTubeService {
             country: countryCode ? YouTubeService.countryMap[countryCode] || countryCode : undefined,
             keywords: channel.brandingSettings?.channel?.keywords?.split('|') || [],
             lastVideoDate: null,
-            customUrl: finalCustomUrl,
+            customUrl: cleanCustomUrl,
             publishedAt: channel.snippet?.publishedAt || new Date().toISOString(),
           };
         });
@@ -324,5 +323,117 @@ export class YouTubeService {
     const cleanUrl = customUrl.replace(/^@+/, '');
     // Add single @ symbol if not empty
     return cleanUrl ? `@${cleanUrl}` : '';
+  }
+
+  static extractChannelUrls(text: string): string[] {
+    const urlPatterns = [
+      // Channel IDs
+      /(?:youtube\.com\/channel\/|youtu\.be\/)([a-zA-Z0-9_-]{24})/g,
+      // Channel handles
+      /youtube\.com\/@([a-zA-Z0-9_-]+)/g,
+      // Legacy usernames
+      /youtube\.com\/user\/([a-zA-Z0-9_-]+)/g,
+      // Custom URLs
+      /youtube\.com\/c\/([a-zA-Z0-9_-]+)/g,
+      // Direct channel IDs (as fallback)
+      /\b([a-zA-Z0-9_-]{24})\b/g
+    ];
+
+    const channelIds = new Set<string>();
+    const channelUrls = new Set<string>();
+
+    // First pass: look for full URLs
+    for (const pattern of urlPatterns) {
+      const matches = text.matchAll(pattern);
+      for (const match of matches) {
+        if (match[1] && match[1].length === 24) {
+          // If it's a channel ID format (24 chars), store the ID
+          channelIds.add(match[1]);
+        } else if (match[0].includes('youtube.com')) {
+          // If it's a full URL, store the URL
+          channelUrls.add(match[0]);
+        }
+      }
+    }
+
+    // Convert channel IDs to URLs
+    const allUrls = [
+      ...Array.from(channelIds).map(id => `https://youtube.com/channel/${id}`),
+      ...Array.from(channelUrls)
+    ];
+
+    return [...new Set(allUrls)]; // Remove duplicates
+  }
+
+  static async getChannelFromUrl(url: string): Promise<youtube_v3.Schema$Channel | null> {
+    try {
+      const apiKey = await getValidApiKey();
+      let channelId: string | null = null;
+
+      // Clean up the URL
+      const cleanUrl = url.trim();
+      if (!cleanUrl) return null;
+
+      // First try to extract channel ID directly
+      const idMatch = cleanUrl.match(/(?:channel\/|youtu\.be\/)([a-zA-Z0-9_-]{24})/);
+      if (idMatch && idMatch[1]) {
+        channelId = idMatch[1];
+      } else {
+        try {
+          // Parse URL and extract info
+          const urlObj = new URL(cleanUrl.startsWith('http') ? cleanUrl : `https://${cleanUrl}`);
+          const path = urlObj.pathname;
+
+          if (path.startsWith('/channel/')) {
+            channelId = path.split('/channel/')[1];
+          } else if (path.startsWith('/@') || path.startsWith('/c/') || path.startsWith('/user/')) {
+            const handle = path.split('/')[2] || path.substring(2);
+            // Search for channel by handle
+            const searchResponse = await youtube.search.list({
+              key: apiKey,
+              part: ['snippet'],
+              q: handle.startsWith('@') ? handle : `@${handle}`,
+              type: ['channel'],
+              maxResults: 1
+            });
+
+            await updateQuotaUsage(apiKey, 100);
+
+            if (searchResponse.data.items?.[0]?.snippet?.channelId) {
+              channelId = searchResponse.data.items[0].snippet.channelId;
+            }
+          }
+        } catch (urlError) {
+          console.error('URL parsing error:', urlError);
+          return null;
+        }
+      }
+
+      if (!channelId) {
+        return null;
+      }
+
+      // Get channel details
+      const response = await youtube.channels.list({
+        key: apiKey,
+        part: ['snippet', 'statistics', 'brandingSettings'],
+        id: [channelId],
+      });
+
+      await updateQuotaUsage(apiKey, 1);
+
+      const channel = response.data.items?.[0];
+      if (!channel) return null;
+
+      // Format custom URL properly
+      if (channel.snippet?.customUrl) {
+        channel.snippet.customUrl = this.formatCustomUrl(channel.snippet.customUrl);
+      }
+
+      return channel;
+    } catch (error) {
+      console.error('Error fetching channel from URL:', error);
+      return null;
+    }
   }
 } 

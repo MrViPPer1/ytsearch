@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { AlertCircle } from 'lucide-react';
 
 const formSchema = z.object({
   query: z.string().min(1, 'Search query is required'),
@@ -46,32 +47,11 @@ const formSchema = z.object({
     (val) => (val === '' ? undefined : Number(val)),
     z.number().min(1).max(1000).optional()
   ),
-  category: z.string().optional(),
   country: z.string().optional(),
   language: z.string().optional(),
 });
 
 type FormValues = z.infer<typeof formSchema>;
-
-const categories = [
-  { value: 'all', label: 'Any' },
-  { value: 'tech', label: 'Technology' },
-  { value: 'gaming', label: 'Gaming' },
-  { value: 'music', label: 'Music' },
-  { value: 'education', label: 'Education' },
-  { value: 'entertainment', label: 'Entertainment' },
-  { value: 'howto', label: 'How-to & Style' },
-  { value: 'science', label: 'Science & Technology' },
-  { value: 'sports', label: 'Sports' },
-  { value: 'news', label: 'News & Politics' },
-  { value: 'lifestyle', label: 'Lifestyle' },
-  { value: 'food', label: 'Food & Cooking' },
-  { value: 'travel', label: 'Travel & Events' },
-  { value: 'automotive', label: 'Automotive' },
-  { value: 'comedy', label: 'Comedy' },
-  { value: 'film', label: 'Film & Animation' },
-  { value: 'pets', label: 'Pets & Animals' },
-];
 
 const countries = [
   { value: 'all', label: 'Any' },
@@ -144,6 +124,42 @@ interface SearchFormProps {
   onLoadAllChange?: (checked: boolean) => void;
 }
 
+function getWarnings(values: FormValues): { message: string; details: string }[] {
+  const warnings: { message: string; details: string }[] = [];
+  
+  if (values.hasEmail) {
+    warnings.push({
+      message: "Email Search Information",
+      details: "The email search will scan channel descriptions and branding settings. Success rate varies as many channels don't publicly display their email."
+    });
+  }
+
+  const maxResults = values.maxResults === 'custom' && values.customMaxResults 
+    ? values.customMaxResults 
+    : values.maxResults 
+      ? Number(values.maxResults) 
+      : 50;
+    
+  if (maxResults > 50) {
+    // Calculate quota usage:
+    // - Initial search: 100 units
+    // - Each batch of 50 results: Math.ceil(maxResults / 50) * 100
+    // - Channel details: maxResults units
+    const searchBatches = Math.ceil(maxResults / 50);
+    const quotaPerBatch = 100;
+    const totalQuota = (searchBatches * quotaPerBatch) + maxResults;
+
+    warnings.push({
+      message: "High Quota Usage Warning",
+      details: `Searching for ${maxResults} channels will use approximately ${totalQuota} quota points:\n` +
+              `• ${searchBatches} search batch${searchBatches > 1 ? 'es' : ''} (${searchBatches * quotaPerBatch} points)\n` +
+              `• ${maxResults} channel detail requests (${maxResults} points)`
+    });
+  }
+
+  return warnings;
+}
+
 export function SearchForm({ 
   onSearch, 
   isLoading, 
@@ -165,7 +181,6 @@ export function SearchForm({
       showNewChannelsOnly: defaultValues.showNewChannelsOnly || false,
       maxResults: defaultValues.maxResults?.toString() || '50',
       customMaxResults: undefined,
-      category: defaultValues.category || 'all',
       country: defaultValues.country || 'all',
       language: defaultValues.language || 'all',
     },
@@ -177,11 +192,6 @@ export function SearchForm({
 
   // Show warning when maxResults is high or hasEmail is true
   const showWarning = (maxResultsValue && parseInt(maxResultsValue) > 50) || hasEmailValue;
-  const warningMessage = hasEmailValue 
-    ? "The email search will look for emails in channel descriptions and branding settings. Not all channels make their email public."
-    : maxResultsValue && parseInt(maxResultsValue) > 50 
-      ? `Searching for ${maxResultsValue} channels will use more quota points. Consider reducing the number if you don't need that many results.`
-      : "";
 
   async function onSubmit(values: FormValues) {
     console.log('Form submitted with values:', values);
@@ -199,17 +209,24 @@ export function SearchForm({
         totalDays = values.lastUploadDays;
       }
 
+      const maxResults = values.maxResults === 'custom' 
+        ? values.customMaxResults 
+        : values.maxResults 
+          ? parseInt(values.maxResults) 
+          : 50;
+
       const filters: SearchFilters = {
+        type: 'channel',
         query: values.query,
         minSubscribers: values.minSubscribers,
         maxSubscribers: values.maxSubscribers,
-        maxResults: values.maxResults === 'custom' ? values.customMaxResults : Number(values.maxResults),
+        maxResults,
         lastUploadDays: totalDays,
         hasEmail: values.hasEmail,
         showNewChannelsOnly: values.showNewChannelsOnly,
-        category: values.category === 'all' ? undefined : values.category,
         country: values.country === 'all' ? undefined : values.country,
         language: values.language === 'all' ? undefined : values.language,
+        page: 1,
       };
 
       console.log('Calling search with filters:', filters);
@@ -221,289 +238,308 @@ export function SearchForm({
 
   return (
     <Form {...form}>
-      <form 
-        onSubmit={(e) => {
-          e.preventDefault();
-          console.log('Form submit event triggered');
-          form.handleSubmit(onSubmit)(e);
-        }} 
-        className="space-y-6"
-      >
+      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
+        {/* Warnings Section */}
         {showWarning && (
-          <Alert className="mb-4">
-            <AlertDescription>{warningMessage}</AlertDescription>
-          </Alert>
+          <div className="space-y-3">
+            {getWarnings(form.getValues()).map((warning, index) => (
+              <Alert 
+                key={index}
+                className="bg-card border-muted"
+              >
+                <AlertCircle className="h-4 w-4 text-muted-foreground" />
+                <div className="ml-2">
+                  <div className="font-medium text-sm">{warning.message}</div>
+                  <AlertDescription className="mt-1 text-sm text-muted-foreground whitespace-pre-line">
+                    {warning.details}
+                  </AlertDescription>
+                </div>
+              </Alert>
+            ))}
+          </div>
         )}
 
-        <div className="grid gap-4 md:grid-cols-2">
+        {/* Main Search Box */}
+        <div className="relative">
           <FormField
             control={form.control}
             name="query"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Search Query</FormLabel>
                 <FormControl>
-                  <Input placeholder="Enter channel keywords..." {...field} />
+                  <Input 
+                    placeholder="Search YouTube channels..." 
+                    {...field}
+                    className="h-14 px-6 text-lg rounded-2xl shadow-sm"
+                  />
                 </FormControl>
                 <FormMessage />
               </FormItem>
             )}
           />
+        </div>
 
-          <div className="flex items-center gap-4 pt-7">
-            <FormField
-              control={form.control}
-              name="hasEmail"
-              render={({ field }) => (
-                <FormItem className="flex items-center space-x-2">
-                  <FormControl>
-                    <Switch checked={field.value} onCheckedChange={field.onChange} />
-                  </FormControl>
-                  <FormLabel className="!mt-0">Has Email in Description</FormLabel>
-                </FormItem>
-              )}
-            />
+        {/* Quick Filters */}
+        <div className="flex flex-wrap gap-4 items-center">
+          <FormField
+            control={form.control}
+            name="hasEmail"
+            render={({ field }) => (
+              <FormItem className="flex items-center space-x-2">
+                <FormControl>
+                  <Switch 
+                    checked={field.value} 
+                    onCheckedChange={field.onChange}
+                    className="data-[state=checked]:bg-primary"
+                  />
+                </FormControl>
+                <FormLabel className="!mt-0 text-sm font-medium">Has Email</FormLabel>
+              </FormItem>
+            )}
+          />
 
-            <FormField
-              control={form.control}
-              name="showNewChannelsOnly"
-              render={({ field }) => (
-                <FormItem className="flex items-center space-x-2">
-                  <FormControl>
-                    <Switch checked={field.value} onCheckedChange={field.onChange} />
-                  </FormControl>
-                  <FormLabel className="!mt-0">New Channels Only</FormLabel>
-                </FormItem>
-              )}
+          <FormField
+            control={form.control}
+            name="showNewChannelsOnly"
+            render={({ field }) => (
+              <FormItem className="flex items-center space-x-2">
+                <FormControl>
+                  <Switch 
+                    checked={field.value} 
+                    onCheckedChange={field.onChange}
+                    className="data-[state=checked]:bg-primary"
+                  />
+                </FormControl>
+                <FormLabel className="!mt-0 text-sm font-medium">New Channels</FormLabel>
+              </FormItem>
+            )}
+          />
+
+          <div className="flex items-center space-x-2">
+            <Switch
+              checked={loadAll}
+              onCheckedChange={onLoadAllChange}
+              className="data-[state=checked]:bg-primary"
             />
+            <label
+              className="text-sm font-medium leading-none"
+            >
+              Load all results
+            </label>
           </div>
         </div>
 
-        <div className="grid gap-4 md:grid-cols-2">
-          <FormField
-            control={form.control}
-            name="minSubscribers"
-            render={({ field: { value, onChange, ...field } }) => (
-              <FormItem>
-                <FormLabel>Min Subscribers</FormLabel>
-                <FormControl>
-                  <Input
-                    type="number"
-                    placeholder="e.g., 1000"
-                    value={value ?? ''}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      onChange(val === '' ? undefined : Number(val));
-                    }}
-                    {...field}
-                  />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-
-          <FormField
-            control={form.control}
-            name="maxSubscribers"
-            render={({ field: { value, onChange, ...field } }) => (
-              <FormItem>
-                <FormLabel>Max Subscribers</FormLabel>
-                <FormControl>
-                  <Input
-                    type="number"
-                    placeholder="Leave empty for no limit"
-                    value={value ?? ''}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      onChange(val === '' ? undefined : Number(val));
-                    }}
-                    {...field}
-                  />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-        </div>
-
-        <div className="grid gap-4 md:grid-cols-3">
-          <FormField
-            control={form.control}
-            name="category"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Category</FormLabel>
-                <Select onValueChange={field.onChange} defaultValue={field.value}>
-                  <FormControl>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select category" />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent>
-                    {categories.map((category) => (
-                      <SelectItem key={category.value} value={category.value}>
-                        {category.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-
-          <FormField
-            control={form.control}
-            name="country"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Country</FormLabel>
-                <Select onValueChange={field.onChange} defaultValue={field.value}>
-                  <FormControl>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select country" />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent>
-                    {countries.map((country) => (
-                      <SelectItem key={country.value} value={country.value}>
-                        {country.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-
-          <FormField
-            control={form.control}
-            name="language"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Language</FormLabel>
-                <Select onValueChange={field.onChange} defaultValue={field.value}>
-                  <FormControl>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select language" />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent>
-                    {languages.map((language) => (
-                      <SelectItem key={language.value} value={language.value}>
-                        {language.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-        </div>
-
-        <div className="grid gap-4 md:grid-cols-2">
-          <FormField
-            control={form.control}
-            name="lastUploadDays"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Last Upload</FormLabel>
-                <div className="flex gap-2">
-                  <Select onValueChange={field.onChange} value={field.value}>
+        {/* Advanced Filters */}
+        <div className="grid gap-8 p-6 rounded-2xl border bg-card/50 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+          {/* Subscriber Range */}
+          <div className="space-y-4">
+            <h3 className="text-base font-medium text-muted-foreground">Subscriber Range</h3>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <FormField
+                control={form.control}
+                name="minSubscribers"
+                render={({ field: { value, onChange, ...field } }) => (
+                  <FormItem>
                     <FormControl>
-                      <SelectTrigger className={field.value === 'custom' ? 'w-[140px]' : 'w-full'}>
-                        <SelectValue placeholder="Select period" />
-                      </SelectTrigger>
+                      <Input
+                        type="number"
+                        placeholder="Min subscribers"
+                        value={value ?? ''}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          onChange(val === '' ? undefined : Number(val));
+                        }}
+                        {...field}
+                        className="h-10"
+                      />
                     </FormControl>
-                    <SelectContent>
-                      {uploadPeriods.map((period) => (
-                        <SelectItem key={period.value} value={period.value}>
-                          {period.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  {field.value === 'custom' && (
-                    <div className="flex gap-2 flex-1">
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="maxSubscribers"
+                render={({ field: { value, onChange, ...field } }) => (
+                  <FormItem>
+                    <FormControl>
                       <Input
                         type="number"
-                        placeholder="Months"
-                        className="flex-1"
-                        value={form.watch('customLastUploadMonths') ?? ''}
-                        onChange={e => {
-                          const months = e.target.value === '' ? undefined : parseInt(e.target.value);
-                          form.setValue('customLastUploadMonths', months);
+                        placeholder="Max subscribers"
+                        value={value ?? ''}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          onChange(val === '' ? undefined : Number(val));
                         }}
+                        {...field}
+                        className="h-10"
                       />
-                      <Input
-                        type="number"
-                        placeholder="Days"
-                        className="flex-1"
-                        value={form.watch('customLastUploadDays') ?? ''}
-                        onChange={e => {
-                          const days = e.target.value === '' ? undefined : parseInt(e.target.value);
-                          form.setValue('customLastUploadDays', days);
-                        }}
-                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+          </div>
+
+          {/* Location and Language */}
+          <div className="space-y-4">
+            <h3 className="text-base font-medium text-muted-foreground">Location & Language</h3>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <FormField
+                control={form.control}
+                name="country"
+                render={({ field }) => (
+                  <FormItem>
+                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select country" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {countries.map((country) => (
+                          <SelectItem key={country.value} value={country.value}>
+                            {country.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="language"
+                render={({ field }) => (
+                  <FormItem>
+                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select language" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {languages.map((language) => (
+                          <SelectItem key={language.value} value={language.value}>
+                            {language.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+          </div>
+
+          {/* Upload Time and Results */}
+          <div className="space-y-4">
+            <h3 className="text-base font-medium text-muted-foreground">Search Configuration</h3>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <FormField
+                control={form.control}
+                name="lastUploadDays"
+                render={({ field }) => (
+                  <FormItem>
+                    <div className="flex gap-2">
+                      <Select onValueChange={field.onChange} value={field.value}>
+                        <FormControl>
+                          <SelectTrigger className={field.value === 'custom' ? 'w-[140px]' : 'w-full'}>
+                            <SelectValue placeholder="Last upload" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {uploadPeriods.map((period) => (
+                            <SelectItem key={period.value} value={period.value}>
+                              {period.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {field.value === 'custom' && (
+                        <div className="flex gap-2 flex-1">
+                          <Input
+                            type="number"
+                            placeholder="Months"
+                            className="flex-1"
+                            value={form.watch('customLastUploadMonths') ?? ''}
+                            onChange={e => {
+                              const months = e.target.value === '' ? undefined : parseInt(e.target.value);
+                              form.setValue('customLastUploadMonths', months);
+                            }}
+                          />
+                          <Input
+                            type="number"
+                            placeholder="Days"
+                            className="flex-1"
+                            value={form.watch('customLastUploadDays') ?? ''}
+                            onChange={e => {
+                              const days = e.target.value === '' ? undefined : parseInt(e.target.value);
+                              form.setValue('customLastUploadDays', days);
+                            }}
+                          />
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
-          <FormField
-            control={form.control}
-            name="maxResults"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Number of Results</FormLabel>
-                <div className="flex gap-2">
-                  <Select onValueChange={field.onChange} value={field.value}>
-                    <FormControl>
-                      <SelectTrigger className={field.value === 'custom' ? 'w-[140px]' : 'w-full'}>
-                        <SelectValue placeholder="Select number" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {maxResultsOptions.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  {field.value === 'custom' && (
-                    <Input
-                      type="number"
-                      placeholder="Enter number (1-1000)"
-                      className="flex-1"
-                      value={form.watch('customMaxResults') || ''}
-                      onChange={e => form.setValue('customMaxResults', parseInt(e.target.value))}
-                    />
-                  )}
-                </div>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
+              <FormField
+                control={form.control}
+                name="maxResults"
+                render={({ field }) => (
+                  <FormItem>
+                    <div className="flex gap-2">
+                      <Select onValueChange={field.onChange} value={field.value}>
+                        <FormControl>
+                          <SelectTrigger className={field.value === 'custom' ? 'w-[140px]' : 'w-full'}>
+                            <SelectValue placeholder="Results count" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {maxResultsOptions.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>
+                              {option.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {field.value === 'custom' && (
+                        <Input
+                          type="number"
+                          placeholder="Custom amount"
+                          className="flex-1"
+                          value={form.watch('customMaxResults') || ''}
+                          onChange={e => form.setValue('customMaxResults', parseInt(e.target.value))}
+                        />
+                      )}
+                    </div>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+          </div>
         </div>
 
-        <div className="flex items-center gap-4">
+        {/* Search Button */}
+        <div className="flex flex-wrap items-center gap-4">
           <Button 
-            type="submit" 
-            disabled={isLoading}
-            className={isLoading ? 'opacity-50 cursor-not-allowed' : ''}
-            onClick={(e) => {
-              e.preventDefault();
-              console.log('Button clicked directly');
+            type="button" 
+            onClick={() => {
               const values = form.getValues();
               onSubmit(values);
             }}
+            disabled={isLoading}
+            size="lg"
+            className="min-w-[200px] h-12 text-base rounded-xl"
           >
             {isLoading ? (
               <>
@@ -514,22 +550,6 @@ export function SearchForm({
               'Search Channels'
             )}
           </Button>
-
-          {showLoadAll && (
-            <div className="flex items-center space-x-2">
-              <Checkbox
-                id="loadAll"
-                checked={loadAll}
-                onCheckedChange={onLoadAllChange}
-              />
-              <label
-                htmlFor="loadAll"
-                className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-              >
-                Load all results at once
-              </label>
-            </div>
-          )}
         </div>
       </form>
     </Form>

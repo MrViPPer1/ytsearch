@@ -4,21 +4,6 @@ import { getApiKeys, updateApiKey } from '@/lib/services/storage';
 
 export async function GET() {
   try {
-    // First check if we have the required environment variables
-    if (!process.env.GOOGLE_CLOUD_PROJECT_ID) {
-      return NextResponse.json(
-        { error: 'Google Cloud Project ID is not configured' },
-        { status: 500 }
-      );
-    }
-
-    if (!process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-      return NextResponse.json(
-        { error: 'Google Cloud credentials are not configured' },
-        { status: 500 }
-      );
-    }
-
     // Get quota information
     const quotaInfo = await getYouTubeQuotaUsage();
     

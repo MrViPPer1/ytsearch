@@ -21,6 +21,7 @@ export interface YoutubeChannel {
 }
 
 export interface SearchFilters {
+  type: 'channel';
   query: string;
   minSubscribers?: number;
   maxSubscribers?: number;
@@ -54,11 +55,12 @@ export interface OptimizedChannel {
   country: string;
   keywords: string;
   publishedAt: string;
+  thumbnailUrl?: string;
 }
 
 export interface SearchHistory {
   id: string;
-  timestamp: Date;
+  timestamp: string;
   filters: SearchFilters;
   resultCount: number;
   channels: OptimizedChannel[];
@@ -80,7 +82,11 @@ export interface SearchHistory {
 export interface ExcludedChannel {
   id: string;
   title: string;
+  customUrl?: string;
+  thumbnailUrl?: string;
+  subscriberCount?: string | number;
   excludedAt: Date | string;
+  addedAt: Date | string;
 }
 
 declare module 'googleapis' {

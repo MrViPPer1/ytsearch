@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { YouTubeService } from '@/lib/services/youtube';
-import { addSearchHistory } from '@/lib/services/storage';
-import { SearchFilters } from '@/types/youtube';
+import { addSearchHistory, updateSearchHistory } from '@/lib/services/storage';
+import { SearchFilters, OptimizedChannel } from '@/types/youtube';
 
 export async function POST(request: Request) {
   try {
@@ -23,12 +23,49 @@ export async function POST(request: Request) {
     console.log(`Found ${result.channels.length} channels`);
 
     // Store search history
-    await addSearchHistory({
-      filters,
-      results: result.channels,
-      resultCount: result.channels.length,
-    });
-    console.log('Search history stored');
+    if (!filters.page || filters.page === 1) {
+      // For initial search, store with all filters and initial results
+      const optimizedChannels: OptimizedChannel[] = result.channels.map(channel => ({
+        id: channel.id,
+        title: channel.title,
+        customUrl: channel.customUrl || '',
+        subscribers: channel.statistics.subscriberCount,
+        videos: channel.statistics.videoCount,
+        views: channel.statistics.viewCount,
+        email: channel.email || '',
+        country: channel.country || '',
+        keywords: channel.keywords?.join('|') || '',
+        publishedAt: channel.publishedAt,
+        thumbnailUrl: channel.thumbnails.default?.url
+      }));
+
+      await addSearchHistory({
+        filters: {
+          ...filters,
+          maxResults: filters.maxResults || 50,
+          page: 1
+        },
+        results: result.channels
+      });
+      console.log('Initial search history stored');
+    } else if (result.channels.length > 0) {
+      // Update existing history with additional results when loading more
+      const optimizedChannels: OptimizedChannel[] = result.channels.map(channel => ({
+        id: channel.id,
+        title: channel.title,
+        customUrl: channel.customUrl || '',
+        subscribers: channel.statistics.subscriberCount,
+        videos: channel.statistics.videoCount,
+        views: channel.statistics.viewCount,
+        email: channel.email || '',
+        country: channel.country || '',
+        keywords: channel.keywords?.join('|') || '',
+        publishedAt: channel.publishedAt,
+        thumbnailUrl: channel.thumbnails.default?.url
+      }));
+      await updateSearchHistory(filters.query, result.channels);
+      console.log('Search history updated with additional results');
+    }
 
     return NextResponse.json({
       channels: result.channels,

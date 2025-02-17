@@ -5,6 +5,7 @@ const nextConfig = {
       'yt3.ggpht.com',
       'yt3.googleusercontent.com',
       'i.ytimg.com',
+      'images.netlify.com'
     ],
   },
 }

@@ -24,6 +24,7 @@ type ChannelFormValues = z.infer<typeof channelSchema>;
 
 export function ExcludedChannels() {
   const [isLoading, setIsLoading] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
   const [excludedChannels, setExcludedChannels] = useState<ExcludedChannel[]>([]);
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -58,20 +59,24 @@ export function ExcludedChannels() {
   const onSubmit = async (values: ChannelFormValues) => {
     try {
       setIsLoading(true);
-      const response = await fetch('/api/excluded-channels', {
+      const formData = new FormData();
+      formData.append('channelUrl', values.channelUrl);
+
+      const response = await fetch('/api/excluded-channels/import', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ channelUrl: values.channelUrl }),
+        body: formData,
       });
 
       if (!response.ok) throw new Error('Failed to add channel');
 
-      const newChannel = await response.json();
-      setExcludedChannels([...excludedChannels, newChannel]);
+      const data = await response.json();
+      if (data.channels) {
+        setExcludedChannels(data.channels);
+      }
       form.reset();
       toast({
         title: 'Success',
-        description: 'Channel added to exclusion list',
+        description: data.message || 'Channel added successfully',
       });
     } catch (error) {
       toast({
@@ -113,6 +118,7 @@ export function ExcludedChannels() {
     if (!file) return;
 
     try {
+      setIsImporting(true);
       const formData = new FormData();
       formData.append('file', file);
 
@@ -124,17 +130,38 @@ export function ExcludedChannels() {
       if (!response.ok) throw new Error('Failed to import channels');
 
       const data = await response.json();
-      setExcludedChannels(data);
+      if (!data.channels || !Array.isArray(data.channels)) {
+        throw new Error('Invalid response format');
+      }
+
+      setExcludedChannels(data.channels);
       toast({
         title: 'Success',
-        description: 'Channels imported successfully',
+        description: data.message || 'Channels imported successfully',
       });
+
+      // Show errors if any
+      if (data.errors?.length > 0) {
+        toast({
+          variant: 'destructive',
+          title: 'Some imports failed',
+          description: `${data.errors.length} channel(s) could not be imported.`,
+        });
+      }
+
+      // Clear the file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
     } catch (error) {
+      console.error('Import error:', error);
       toast({
         variant: 'destructive',
         title: 'Error',
-        description: 'Failed to import channels',
+        description: error instanceof Error ? error.message : 'Failed to import channels',
       });
+    } finally {
+      setIsImporting(false);
     }
   };
 
@@ -170,6 +197,16 @@ export function ExcludedChannels() {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
+        <div className="rounded-lg border bg-card p-4 text-sm text-muted-foreground">
+          <h4 className="font-medium mb-2">How to Import Channels:</h4>
+          <ul className="space-y-2 list-disc list-inside ml-2">
+            <li>Enter a YouTube channel URL (e.g., https://youtube.com/@channelname)</li>
+            <li>Import a CSV/JSON file with channel data</li>
+            <li>CSV format should include: Channel URL or ID in separate rows</li>
+            <li>The app will automatically fetch channel details from YouTube</li>
+          </ul>
+        </div>
+
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
             <FormField
@@ -193,8 +230,14 @@ export function ExcludedChannels() {
               )}
             />
             <Button type="submit" disabled={isLoading}>
-              {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Add Channel
+              {isLoading ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Adding Channel...
+                </>
+              ) : (
+                'Add Channel'
+              )}
             </Button>
           </form>
         </Form>
@@ -207,9 +250,18 @@ export function ExcludedChannels() {
             ref={fileInputRef}
             onChange={handleFileUpload}
           />
-          <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
-            <Upload className="mr-2 h-4 w-4" />
-            Import List
+          <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} disabled={isImporting}>
+            {isImporting ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Importing...
+              </>
+            ) : (
+              <>
+                <Upload className="mr-2 h-4 w-4" />
+                Import List
+              </>
+            )}
           </Button>
           <Button variant="outline" size="sm" onClick={() => exportChannels('json')}>
             <Download className="mr-2 h-4 w-4" />
@@ -218,6 +270,32 @@ export function ExcludedChannels() {
           <Button variant="outline" size="sm" onClick={() => exportChannels('csv')}>
             <Download className="mr-2 h-4 w-4" />
             Export (CSV)
+          </Button>
+          <Button 
+            variant="destructive" 
+            size="sm" 
+            onClick={async () => {
+              try {
+                const response = await fetch('/api/excluded-channels/clear', {
+                  method: 'DELETE',
+                });
+                if (!response.ok) throw new Error('Failed to clear excluded channels');
+                setExcludedChannels([]);
+                toast({
+                  title: 'Success',
+                  description: 'All channels removed from exclusion list',
+                });
+              } catch (error) {
+                toast({
+                  variant: 'destructive',
+                  title: 'Error',
+                  description: 'Failed to clear excluded channels',
+                });
+              }
+            }}
+          >
+            <Trash2 className="mr-2 h-4 w-4" />
+            Clear All
           </Button>
         </div>
 
@@ -229,7 +307,7 @@ export function ExcludedChannels() {
             <div className="grid gap-4">
               {excludedChannels.map((channel) => (
                 <div
-                  key={channel.id}
+                  key={`${channel.id}-${channel.addedAt}`}
                   className="flex items-center justify-between p-4 border rounded-lg"
                 >
                   <div className="flex items-center space-x-4">
@@ -243,13 +321,22 @@ export function ExcludedChannels() {
                       />
                     )}
                     <div>
-                      <p className="font-medium">{channel.title}</p>
+                      <a
+                        href={`https://youtube.com/channel/${channel.id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-medium hover:underline"
+                      >
+                        {channel.title}
+                      </a>
                       {channel.customUrl && (
-                        <p className="text-sm text-muted-foreground">@{channel.customUrl}</p>
+                        <p className="text-sm text-muted-foreground">
+                          {channel.customUrl.startsWith('@') ? channel.customUrl : `@${channel.customUrl}`}
+                        </p>
                       )}
                       {channel.subscriberCount && (
                         <p className="text-sm text-muted-foreground">
-                          {parseInt(channel.subscriberCount).toLocaleString()} subscribers
+                          {Number(channel.subscriberCount).toLocaleString()} subscribers
                         </p>
                       )}
                     </div>
