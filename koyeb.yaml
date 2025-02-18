@@ -8,8 +8,8 @@ service:
   env:
     - name: NODE_ENV
       value: production
-  buildCommand: pnpm install --no-frozen-lockfile && pnpm run build
-  startCommand: pnpm start
+  buildCommand: npm install && npm run build
+  startCommand: npm start
   instance:
     type: nano
     region: fra 
