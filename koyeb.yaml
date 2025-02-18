@@ -8,6 +8,10 @@ service:
   env:
     - name: NODE_ENV
       value: production
+    - name: NEXT_PUBLIC_APP_URL
+      value: https://ytsearchleads.koyeb.app
+    - name: NODE_VERSION
+      value: "18.19.0"
   buildCommand: npm install && npm run build
   startCommand: npm start
   instance:
