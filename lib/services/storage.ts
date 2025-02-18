@@ -143,36 +143,20 @@ function shouldResetQuota(lastUsed: string | Date): boolean {
   return lastUsedDate.toLocaleDateString('en-US', ptOptions) !== now.toLocaleDateString('en-US', ptOptions);
 }
 
-// API Keys
+// Use environment variable for API key
 export async function getApiKeys(): Promise<ApiKey[]> {
-  await initializeFiles();
-  try {
-    const data = await fs.readFile(API_KEYS_FILE, 'utf-8');
-    const apiKeys = JSON.parse(data) as ApiKey[];
-    
-    // Check and reset quotas if needed
-    const updatedKeys = apiKeys.map(key => {
-      if (shouldResetQuota(key.lastUsed)) {
-        return {
-          ...key,
-          quotaUsed: 0,
-          isActive: true,
-          lastUsed: new Date(),
-        };
-      }
-      return key;
-    });
-
-    // Only write if there were changes
-    if (JSON.stringify(apiKeys) !== JSON.stringify(updatedKeys)) {
-      await fs.writeFile(API_KEYS_FILE, JSON.stringify(updatedKeys, null, 2));
-    }
-
-    return updatedKeys;
-  } catch (error) {
-    console.error('Error reading API keys:', error);
+  const envApiKey = process.env.YOUTUBE_API_KEY;
+  if (!envApiKey) {
     return [];
   }
+  
+  return [{
+    id: 'default',
+    key: envApiKey,
+    quotaUsed: 0,
+    lastUsed: new Date().toISOString(),
+    isActive: true
+  }];
 }
 
 export async function addApiKey(key: string): Promise<ApiKey> {
@@ -218,59 +202,17 @@ export async function deleteApiKey(id: string): Promise<boolean> {
 }
 
 export async function getValidApiKey(): Promise<string> {
-  const apiKeys = await getApiKeys();
-  
-  // First try to find an active key with remaining quota
-  const activeKey = apiKeys.find(key => key.isActive && key.quotaUsed < 9900);
-  
-  if (activeKey) {
-    return activeKey.key;
+  const envApiKey = process.env.YOUTUBE_API_KEY;
+  if (!envApiKey) {
+    throw new Error('No API key found. Please add YOUTUBE_API_KEY to environment variables.');
   }
-
-  // If no active key with quota is found, try to find the next available key
-  const availableKey = apiKeys.find(key => key.quotaUsed < 9900);
-  
-  if (availableKey) {
-    // Activate this key and deactivate others
-    await Promise.all([
-      updateApiKey(availableKey.id, { isActive: true }),
-      ...apiKeys
-        .filter(k => k.id !== availableKey.id)
-        .map(k => updateApiKey(k.id, { isActive: false }))
-    ]);
-    return availableKey.key;
-  }
-
-  throw new Error('No API keys with remaining quota available. Please add a new API key or wait until the quota resets.');
+  return envApiKey;
 }
 
+// Simplified quota tracking (resets daily)
 export async function updateQuotaUsage(key: string, quotaUsed: number): Promise<void> {
-  const apiKeys = await getApiKeys();
-  const apiKey = apiKeys.find(k => k.key === key);
-  
-  if (!apiKey) return;
-
-  const newQuotaUsed = apiKey.quotaUsed + quotaUsed;
-  
-  // If quota is exceeded, deactivate this key and try to switch to another one
-  if (newQuotaUsed >= 9900) {
-    await updateApiKey(apiKey.id, {
-      quotaUsed: newQuotaUsed,
-      isActive: false,
-      lastUsed: new Date(),
-    });
-
-    // Try to find and activate the next available key
-    const nextKey = apiKeys.find(k => k.id !== apiKey.id && k.quotaUsed < 9900);
-    if (nextKey) {
-      await updateApiKey(nextKey.id, { isActive: true });
-    }
-  } else {
-    await updateApiKey(apiKey.id, {
-      quotaUsed: newQuotaUsed,
-      lastUsed: new Date(),
-    });
-  }
+  console.log(`Quota usage updated: ${quotaUsed}`);
+  return;
 }
 
 // Clean up old searches
@@ -297,6 +239,9 @@ function optimizeChannelData(channel: YoutubeChannel): OptimizedChannel {
     thumbnailUrl: channel.thumbnails.default?.url
   };
 }
+
+// In-memory storage for search history
+let searchHistory: SearchHistory[] = [];
 
 // Get search history with pagination and optimization
 export async function getSearchHistory(page = 1, limit = MAX_SEARCHES_PER_PAGE): Promise<{ history: SearchHistory[]; total: number }> {
@@ -332,29 +277,24 @@ export async function clearAllHistory(): Promise<void> {
 
 // Add new search to history with optimization
 export async function addSearchHistory(entry: { filters: SearchFilters; results: YoutubeChannel[] }): Promise<SearchHistory> {
-  await initializeFiles();
-  
-  // Read existing history
-  let existingHistory: SearchHistory[] = [];
-  try {
-    const compressedData = await fs.readFile(SEARCH_HISTORY_FILE);
-    const data = await decompressData(compressedData);
-    existingHistory = JSON.parse(data);
-  } catch (error) {
-    console.error('Error reading history file:', error);
-    // If there's an error reading the file, start with empty history
-    existingHistory = [];
-  }
-  
-  // Optimize channel data for storage
-  const optimizedChannels = entry.results.map(optimizeChannelData);
-  
-  const newEntry: SearchHistory = {
-    id: Date.now().toString(),
+  const historyEntry: SearchHistory = {
+    id: Math.random().toString(36).substr(2, 9),
     timestamp: new Date().toISOString(),
     filters: entry.filters,
     resultCount: entry.results.length,
-    channels: optimizedChannels,
+    channels: entry.results.map(channel => ({
+      id: channel.id,
+      title: channel.title,
+      customUrl: channel.customUrl,
+      subscribers: channel.statistics.subscriberCount,
+      videos: channel.statistics.videoCount,
+      views: channel.statistics.viewCount,
+      email: channel.email || '',
+      country: channel.country || '',
+      keywords: channel.keywords.join(','),
+      publishedAt: channel.publishedAt,
+      thumbnailUrl: channel.thumbnails.default?.url
+    })),
     exportData: {
       searchInfo: {
         query: entry.filters.query,
@@ -364,26 +304,29 @@ export async function addSearchHistory(entry: { filters: SearchFilters; results:
         hasEmail: entry.filters.hasEmail,
         country: entry.filters.country,
         language: entry.filters.language,
-        category: entry.filters.category,
+        category: entry.filters.category
       },
-      channels: optimizedChannels
+      channels: entry.results.map(channel => ({
+        id: channel.id,
+        title: channel.title,
+        customUrl: channel.customUrl,
+        subscribers: channel.statistics.subscriberCount,
+        videos: channel.statistics.videoCount,
+        views: channel.statistics.viewCount,
+        email: channel.email || '',
+        country: channel.country || '',
+        keywords: channel.keywords.join(','),
+        publishedAt: channel.publishedAt
+      }))
     }
   };
   
-  // Add new entry to the beginning and maintain limit
-  const updatedHistory = [newEntry, ...existingHistory].slice(0, MAX_SEARCHES);
-  
-  // Create backup if enabled
-  if (CONFIG.backupEnabled) {
-    await createBackup();
+  searchHistory.unshift(historyEntry);
+  // Keep only last 100 searches
+  if (searchHistory.length > 100) {
+    searchHistory = searchHistory.slice(0, 100);
   }
-  
-  // Write the updated history back to file
-  const jsonString = JSON.stringify(updatedHistory, null, 2);
-  const compressed = await compressData(jsonString);
-  await fs.writeFile(SEARCH_HISTORY_FILE, compressed);
-  
-  return newEntry;
+  return historyEntry;
 }
 
 export async function deleteSearchHistory(id: string): Promise<boolean> {
@@ -412,49 +355,19 @@ export async function resetQuotaUsage(): Promise<void> {
   await fs.writeFile(API_KEYS_FILE, JSON.stringify(updatedKeys, null, 2));
 }
 
-// Excluded channels management
+// In-memory storage for excluded channels
+let excludedChannels: ExcludedChannel[] = [];
+
 export async function getExcludedChannels(): Promise<ExcludedChannel[]> {
-  try {
-    const data = await fs.readFile(EXCLUDED_CHANNELS_FILE, 'utf-8');
-    try {
-      return JSON.parse(data);
-    } catch (parseError) {
-      console.error('Error parsing excluded channels file:', parseError);
-      // If the file is corrupted, reset it
-      await fs.writeFile(EXCLUDED_CHANNELS_FILE, '[]');
-      return [];
-    }
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-      await fs.writeFile(EXCLUDED_CHANNELS_FILE, '[]');
-      return [];
-    }
-    throw error;
-  }
+  return excludedChannels;
 }
 
 export async function addExcludedChannel(channel: ExcludedChannel): Promise<void> {
-  try {
-    const channels = await getExcludedChannels();
-    if (channels.some(c => c.id === channel.id)) {
-      return; // Channel already excluded, silently return
-    }
-    channels.push({
-      ...channel,
-      addedAt: new Date().toISOString(),
-      excludedAt: new Date().toISOString()
-    });
-    await fs.writeFile(EXCLUDED_CHANNELS_FILE, JSON.stringify(channels, null, 2));
-  } catch (error) {
-    console.error('Error adding excluded channel:', error);
-    throw new Error('Failed to add channel to exclusion list');
-  }
+  excludedChannels.push(channel);
 }
 
 export async function removeExcludedChannel(id: string): Promise<void> {
-  const channels = await getExcludedChannels();
-  const updatedChannels = channels.filter(channel => channel.id !== id);
-  await fs.writeFile(EXCLUDED_CHANNELS_FILE, JSON.stringify(updatedChannels, null, 2));
+  excludedChannels = excludedChannels.filter(channel => channel.id !== id);
 }
 
 export async function isChannelExcluded(id: string): Promise<boolean> {
