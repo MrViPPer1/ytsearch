@@ -143,25 +143,31 @@ function shouldResetQuota(lastUsed: string | Date): boolean {
   return lastUsedDate.toLocaleDateString('en-US', ptOptions) !== now.toLocaleDateString('en-US', ptOptions);
 }
 
+// In-memory storage for API keys
+let apiKeys: ApiKey[] = [];
+
 // Use environment variable for API key
 export async function getApiKeys(): Promise<ApiKey[]> {
   const envApiKey = process.env.YOUTUBE_API_KEY;
-  if (!envApiKey) {
+  if (!envApiKey && apiKeys.length === 0) {
     return [];
   }
   
-  return [{
-    id: 'default',
-    key: envApiKey,
-    quotaUsed: 0,
-    lastUsed: new Date().toISOString(),
-    isActive: true
-  }];
+  // If we have no keys in memory but have an env key, initialize with it
+  if (apiKeys.length === 0 && envApiKey) {
+    apiKeys = [{
+      id: 'default',
+      key: envApiKey,
+      quotaUsed: 0,
+      lastUsed: new Date().toISOString(),
+      isActive: true
+    }];
+  }
+  
+  return apiKeys;
 }
 
 export async function addApiKey(key: string): Promise<ApiKey> {
-  const apiKeys = await getApiKeys();
-  
   // Check if key already exists
   if (apiKeys.some(k => k.key === key)) {
     throw new Error('API key already exists');
@@ -171,46 +177,47 @@ export async function addApiKey(key: string): Promise<ApiKey> {
     id: Date.now().toString(),
     key,
     quotaUsed: 0,
-    lastUsed: new Date(),
-    isActive: true,
+    lastUsed: new Date().toISOString(),
+    isActive: true
   };
   
   apiKeys.push(newKey);
-  await fs.writeFile(API_KEYS_FILE, JSON.stringify(apiKeys, null, 2));
   return newKey;
 }
 
 export async function updateApiKey(id: string, updates: Partial<ApiKey>): Promise<ApiKey | null> {
-  const apiKeys = await getApiKeys();
   const index = apiKeys.findIndex(k => k.id === id);
   
   if (index === -1) return null;
   
   apiKeys[index] = { ...apiKeys[index], ...updates };
-  await fs.writeFile(API_KEYS_FILE, JSON.stringify(apiKeys, null, 2));
   return apiKeys[index];
 }
 
 export async function deleteApiKey(id: string): Promise<boolean> {
-  const apiKeys = await getApiKeys();
-  const filteredKeys = apiKeys.filter(k => k.id !== id);
-  
-  if (filteredKeys.length === apiKeys.length) return false;
-  
-  await fs.writeFile(API_KEYS_FILE, JSON.stringify(filteredKeys, null, 2));
-  return true;
+  const initialLength = apiKeys.length;
+  apiKeys = apiKeys.filter(k => k.id !== id);
+  return apiKeys.length !== initialLength;
 }
 
 export async function getValidApiKey(): Promise<string> {
-  const envApiKey = process.env.YOUTUBE_API_KEY;
-  if (!envApiKey) {
-    throw new Error('No API key found. Please add YOUTUBE_API_KEY to environment variables.');
+  const keys = await getApiKeys();
+  const activeKey = keys.find(k => k.isActive && k.quotaUsed < 9900);
+  
+  if (!activeKey) {
+    throw new Error('No active API key found with available quota. Please add a valid API key in settings.');
   }
-  return envApiKey;
+  
+  return activeKey.key;
 }
 
 // Simplified quota tracking (resets daily)
 export async function updateQuotaUsage(key: string, quotaUsed: number): Promise<void> {
+  const index = apiKeys.findIndex(k => k.key === key);
+  if (index !== -1) {
+    apiKeys[index].quotaUsed = quotaUsed;
+    apiKeys[index].lastUsed = new Date().toISOString();
+  }
   console.log(`Quota usage updated: ${quotaUsed}`);
   return;
 }
