@@ -37,7 +37,11 @@ export async function POST(request: Request) {
       );
     }
 
-    return NextResponse.json(updatedKey);
+    // Return both the updated key and all keys to ensure UI is in sync
+    return NextResponse.json({
+      updatedKey,
+      allKeys: updatedKeys
+    });
   } catch (error) {
     console.error('Error updating quota:', error);
     return NextResponse.json(

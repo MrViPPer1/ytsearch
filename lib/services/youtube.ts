@@ -1,5 +1,5 @@
 import { google, youtube_v3 } from 'googleapis';
-import { YoutubeChannel, SearchFilters } from '@/types/youtube';
+import { YoutubeChannel, SearchFilters, OptimizedChannel } from '@/types/youtube';
 import { 
   getValidApiKey, 
   updateQuotaUsage, 
@@ -23,6 +23,20 @@ interface SearchResponse {
 }
 
 export class YouTubeService {
+  private youtube;
+  private apiKey: string;
+
+  constructor() {
+    this.youtube = google.youtube('v3');
+  }
+
+  private async initializeApiKey() {
+    this.apiKey = await getValidApiKey();
+    if (!this.apiKey) {
+      throw new Error('No valid API key available');
+    }
+  }
+
   // Add country code to name mapping
   private static countryMap: { [key: string]: string } = {
     'US': 'United States',
@@ -48,200 +62,127 @@ export class YouTubeService {
     'RO': 'Romania',
   };
 
-  static async searchChannels(filters: SearchFilters): Promise<SearchResponse> {
-    const apiKey = await getValidApiKey();
+  async searchChannels(query: string, filters: SearchFilters, page: number = 1) {
+    await this.initializeApiKey();
     let quotaUsed = 0;
-    let estimatedQuota = 0;
-    let allChannels: youtube_v3.Schema$Channel[] = [];
-    let lastSearchResponse: any = null;
-    
+
     try {
-      const searchKey = generateSearchKey(filters);
-      const pageToken = filters.page > 1 ? await getPageToken(searchKey, filters.page) : undefined;
-      const desiredResults = filters.maxResults || 10;
-      
-      // Keep fetching until we have enough channels or no more results
-      let currentPageToken = pageToken;
-      let attempts = 0;
-      const maxAttempts = 3; // Limit the number of attempts to avoid excessive quota usage
+      // Search for channels (100 units)
+      const searchResponse = await this.youtube.search.list({
+        key: this.apiKey,
+        part: ['snippet'],
+        q: query,
+        type: ['channel'],
+        maxResults: filters.maxResults || 50,
+        pageToken: page > 1 ? filters.pageToken : undefined,
+        relevanceLanguage: filters.language,
+        regionCode: filters.country,
+      });
 
-      while (allChannels.length < desiredResults && attempts < maxAttempts) {
-        // Search for channels - costs 100 quota units
-        const searchResponse = await youtube.search.list({
-          key: apiKey,
-          part: ['snippet'],
-          q: filters.query,
-          type: ['channel'],
-          maxResults: 50, // Always request maximum to get more channels to filter
-          pageToken: currentPageToken,
-          regionCode: filters.country,
-          relevanceLanguage: filters.language,
-        });
-        
-        lastSearchResponse = searchResponse; // Store for pagination
-        quotaUsed += 100;
-        estimatedQuota = 100; // Base search cost
-        
-        if (!searchResponse.data.items?.length) break;
+      quotaUsed += 100;
+      const channelIds = searchResponse.data.items?.map(item => item.snippet?.channelId).filter(Boolean) || [];
 
-        // Get channel details
-        const channelIds = searchResponse.data.items
-          .map(item => item.snippet?.channelId)
-          .filter((id): id is string => typeof id === 'string');
-
-        const channelsResponse = await youtube.channels.list({
-          key: apiKey,
-          part: ['snippet', 'statistics', 'brandingSettings'],
-          id: channelIds,
-          maxResults: 50,
-        });
-
-        quotaUsed += channelIds.length;
-        estimatedQuota += channelIds.length;
-
-        if (!channelsResponse.data.items?.length) break;
-
-        // Filter and add channels
-        const filteredChannels = await Promise.all(
-          channelsResponse.data.items.map(async (channel): Promise<youtube_v3.Schema$Channel | null> => {
-            if (!channel.statistics?.subscriberCount) return null;
-            const subscriberCount = parseInt(channel.statistics.subscriberCount);
-            
-            // Check subscriber count
-            if (filters.minSubscribers && !isNaN(subscriberCount) && subscriberCount < filters.minSubscribers) {
-              return null;
-            }
-
-            // Check language if specified
-            if (filters.language && filters.language !== 'all') {
-              const channelLanguage = channel.snippet?.defaultLanguage || 
-                                    channel.brandingSettings?.channel?.defaultLanguage;
-              if (channelLanguage && channelLanguage !== filters.language) {
-                return null;
-              }
-            }
-
-            // Check if channel is excluded
-            if (channel.id && await isChannelExcluded(channel.id)) {
-              return null;
-            }
-
-            // If hasEmail is true, check for email
-            if (filters.hasEmail) {
-              const hasEmail = Boolean(
-                YouTubeService.extractEmail(
-                  channel.snippet?.description || '',
-                  channel.brandingSettings?.channel?.email
-                )
-              );
-              if (!hasEmail) return null;
-            }
-
-            return channel;
-          })
-        ).then(channels => channels.filter((c): c is youtube_v3.Schema$Channel => c !== null));
-
-        allChannels = [...allChannels, ...filteredChannels];
-        
-        // Check if we need more channels
-        if (allChannels.length < desiredResults && searchResponse.data.nextPageToken) {
-          currentPageToken = searchResponse.data.nextPageToken;
-          attempts++;
-        } else {
-          break;
-        }
+      if (channelIds.length === 0) {
+        await updateQuotaUsage(this.apiKey, quotaUsed);
+        return { channels: [], nextPageToken: null, totalResults: 0 };
       }
 
-      // Map channels to our format
-      const channels = allChannels
-        .slice(0, desiredResults)
-        .map(channel => {
-          const countryCode = channel.snippet?.country || channel.brandingSettings?.channel?.country;
-          const rawCustomUrl = channel.snippet?.customUrl || '';
-          // Store custom URL without @ symbol
-          const cleanCustomUrl = rawCustomUrl.replace(/^@+/, '');
+      // Get detailed channel info (1 unit per channel)
+      const channelsResponse = await this.youtube.channels.list({
+        key: this.apiKey,
+        part: ['snippet', 'statistics', 'contentDetails'],
+        id: channelIds,
+      });
 
-          return {
-            id: channel.id!,
-            title: channel.snippet?.title || '',
-            description: channel.snippet?.description || '',
-            thumbnails: {
-              default: channel.snippet?.thumbnails?.default?.url ? { url: channel.snippet.thumbnails.default.url } : undefined,
-              medium: channel.snippet?.thumbnails?.medium?.url ? { url: channel.snippet.thumbnails.medium.url } : undefined,
-              high: channel.snippet?.thumbnails?.high?.url ? { url: channel.snippet.thumbnails.high.url } : undefined,
-            },
-            statistics: {
-              subscriberCount: parseInt(channel.statistics?.subscriberCount || '0'),
-              videoCount: parseInt(channel.statistics?.videoCount || '0'),
-              viewCount: parseInt(channel.statistics?.viewCount || '0'),
-            },
-            email: YouTubeService.extractEmail(
-              channel.snippet?.description || '',
-              channel.brandingSettings?.channel?.email
-            ),
-            country: countryCode ? YouTubeService.countryMap[countryCode] || countryCode : undefined,
-            keywords: channel.brandingSettings?.channel?.keywords?.split('|') || [],
-            lastVideoDate: null,
-            customUrl: cleanCustomUrl,
-            publishedAt: channel.snippet?.publishedAt || new Date().toISOString(),
-          };
+      quotaUsed += channelIds.length;
+
+      // Process and filter channels
+      const channels: OptimizedChannel[] = [];
+      for (const item of channelsResponse.data.items || []) {
+        if (!item.statistics || !item.snippet) continue;
+
+        const subscriberCount = parseInt(item.statistics.subscriberCount || '0');
+        if (filters.minSubscribers && subscriberCount < filters.minSubscribers) continue;
+        if (filters.maxSubscribers && subscriberCount > filters.maxSubscribers) continue;
+
+        // Get last video date if needed (2 units per channel)
+        let lastVideoDate: string | undefined;
+        if (filters.lastUploadDays) {
+          const uploadsPlaylistId = item.contentDetails?.relatedPlaylists?.uploads;
+          if (uploadsPlaylistId) {
+            const videosResponse = await this.youtube.playlistItems.list({
+              key: this.apiKey,
+              part: ['snippet'],
+              playlistId: uploadsPlaylistId,
+              maxResults: 1,
+            });
+            quotaUsed += 2;
+            lastVideoDate = videosResponse.data.items?.[0]?.snippet?.publishedAt;
+          }
+        }
+
+        channels.push({
+          id: item.id!,
+          title: item.snippet.title!,
+          description: item.snippet.description!,
+          thumbnailUrl: item.snippet.thumbnails?.default?.url!,
+          subscriberCount,
+          videoCount: parseInt(item.statistics.videoCount || '0'),
+          viewCount: parseInt(item.statistics.viewCount || '0'),
+          country: item.snippet.country,
+          lastVideoDate,
         });
+      }
 
       // Update quota usage
-      await updateQuotaUsage(apiKey, quotaUsed);
-
-      // Calculate pagination values
-      const totalResults = Math.min(
-        parseInt(lastSearchResponse?.data.pageInfo?.totalResults?.toString() || '0'),
-        500 // YouTube API limit
-      );
-      
-      const hasMore = Boolean(currentPageToken) && channels.length === desiredResults;
+      await updateQuotaUsage(this.apiKey, quotaUsed);
 
       return {
         channels,
-        pagination: {
-          currentPage: filters.page,
-          totalResults: Math.min(totalResults, filters.maxResults || 10),
-          hasMore,
-          quotaUsed,
-          estimatedQuota
-        }
+        nextPageToken: searchResponse.data.nextPageToken || null,
+        totalResults: parseInt(searchResponse.data.pageInfo?.totalResults || '0'),
       };
 
-    } catch (error) {
-      await updateQuotaUsage(apiKey, quotaUsed);
+    } catch (error: any) {
+      // Update quota even if there's an error
+      await updateQuotaUsage(this.apiKey, quotaUsed);
       throw error;
     }
   }
 
-  static async getChannelLastVideo(channelId: string): Promise<string | null> {
-    const apiKey = await getValidApiKey();
+  async getChannelLastVideo(channelId: string): Promise<string | null> {
+    await this.initializeApiKey();
     let quotaUsed = 0;
-    
+
     try {
-      // Search for the channel's most recent video - costs 100 quota units
-      const searchResponse = await youtube.search.list({
-        key: apiKey,
+      // Get channel details (1 unit)
+      const channelResponse = await this.youtube.channels.list({
+        key: this.apiKey,
+        part: ['contentDetails'],
+        id: [channelId],
+      });
+      quotaUsed += 1;
+
+      const uploadsPlaylistId = channelResponse.data.items?.[0]?.contentDetails?.relatedPlaylists?.uploads;
+      if (!uploadsPlaylistId) {
+        await updateQuotaUsage(this.apiKey, quotaUsed);
+        return null;
+      }
+
+      // Get latest video (2 units)
+      const videosResponse = await this.youtube.playlistItems.list({
+        key: this.apiKey,
         part: ['snippet'],
-        channelId,
-        order: 'date',
-        type: ['video'],
+        playlistId: uploadsPlaylistId,
         maxResults: 1,
       });
-      
-      quotaUsed = 100;
-      
-      const lastVideo = searchResponse.data.items?.[0];
-      const lastVideoDate = lastVideo?.snippet?.publishedAt || null;
-      
-      // Update quota usage
-      await updateQuotaUsage(apiKey, quotaUsed);
-      
-      return lastVideoDate;
-    } catch (error) {
-      // Still update quota usage even if there was an error
-      await updateQuotaUsage(apiKey, quotaUsed);
+      quotaUsed += 2;
+
+      await updateQuotaUsage(this.apiKey, quotaUsed);
+      return videosResponse.data.items?.[0]?.snippet?.publishedAt || null;
+
+    } catch (error: any) {
+      await updateQuotaUsage(this.apiKey, quotaUsed);
       throw error;
     }
   }

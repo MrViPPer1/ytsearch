@@ -21,59 +21,57 @@ export interface YoutubeChannel {
 }
 
 export interface SearchFilters {
-  type: 'channel';
-  query: string;
+  query?: string;
   minSubscribers?: number;
   maxSubscribers?: number;
-  maxResults?: number;
-  lastUploadDays?: string;
+  lastUploadDays?: number;
   hasEmail?: boolean;
-  showNewChannelsOnly?: boolean;
   country?: string;
   language?: string;
+  maxResults?: number;
+  pageToken?: string;
   category?: string;
-  page: number;
-  loadAll?: boolean;
 }
 
 export interface ApiKey {
   id: string;
   key: string;
   quotaUsed: number;
-  lastUsed: Date | string;
   isActive: boolean;
+  lastUsed: string;
 }
 
 export interface OptimizedChannel {
   id: string;
   title: string;
-  customUrl: string;
-  subscribers: number;
-  videos: number;
-  views: number;
-  email: string;
-  country: string;
-  keywords: string;
-  publishedAt: string;
-  thumbnailUrl?: string;
+  thumbnailUrl: string;
+  subscriberCount: number;
+  videoCount: number;
+  viewCount: number;
+  country?: string;
+  lastVideoDate?: string;
+  customUrl?: string;
+  email?: string;
+  keywords?: string;
+  publishedAt?: string;
 }
 
 export interface SearchHistory {
   id: string;
-  timestamp: string;
+  query: string;
   filters: SearchFilters;
-  resultCount: number;
+  timestamp: number;
   channels: OptimizedChannel[];
-  exportData: {
+  resultCount?: number;
+  exportData?: {
     searchInfo: {
       query: string;
       minSubscribers?: number;
       maxSubscribers?: number;
-      lastUploadDays?: string;
+      lastUploadDays?: number;
       hasEmail?: boolean;
       country?: string;
       language?: string;
-      category?: string;
     };
     channels: OptimizedChannel[];
   };
@@ -87,6 +85,12 @@ export interface ExcludedChannel {
   subscriberCount?: string | number;
   excludedAt: Date | string;
   addedAt: Date | string;
+}
+
+export interface SearchResponse {
+  channels: OptimizedChannel[];
+  nextPageToken: string | null;
+  totalResults: number;
 }
 
 declare module 'googleapis' {

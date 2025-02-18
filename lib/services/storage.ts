@@ -1,12 +1,25 @@
-import fs from 'fs/promises';
+import { promises as fs } from 'fs';
 import path from 'path';
 import { gzip, unzip } from 'zlib';
 import { promisify } from 'util';
 import { ApiKey, SearchHistory, ExcludedChannel, SearchFilters, YoutubeChannel, OptimizedChannel } from '@/types/youtube';
 import { format } from 'date-fns';
+import { existsSync } from 'fs';
+import {
+  getStoredApiKeys,
+  storeApiKeys,
+  getStoredSearchHistory,
+  storeSearchHistory,
+  getStoredExcludedChannels,
+  storeExcludedChannels,
+  getStoredPageTokens,
+  storePageTokens
+} from './netlify-kv';
 
 const gzipAsync = promisify(gzip);
 const unzipAsync = promisify(unzip);
+
+const isNetlify = process.env.NETLIFY === 'true';
 
 // Storage configuration
 const CONFIG = {
@@ -20,7 +33,7 @@ const CONFIG = {
 
 const DATA_DIR = path.join(process.cwd(), 'data');
 const API_KEYS_FILE = path.join(DATA_DIR, 'api-keys.json');
-const SEARCH_HISTORY_FILE = path.join(DATA_DIR, 'search-history.json.gz');
+const HISTORY_FILE = path.join(DATA_DIR, 'search-history.json');
 const EXCLUDED_CHANNELS_FILE = path.join(DATA_DIR, 'excluded-channels.json');
 const PAGE_TOKENS_FILE = path.join(DATA_DIR, 'page-tokens.json');
 const BACKUP_DIR = path.join(DATA_DIR, 'backups');
@@ -37,6 +50,10 @@ interface PageTokenEntry {
   page: number;
   token: string;
   timestamp: number;
+}
+
+function generateId(): string {
+  return Date.now().toString() + Math.random().toString(36).substring(2, 15);
 }
 
 // Helper function to compress data
@@ -58,26 +75,29 @@ async function ensureDataDir() {
   }
 }
 
-// Initialize files if they don't exist
+// Initialize files if they don't exist (development only)
 async function initializeFiles() {
-  await ensureDataDir();
+  if (isNetlify) return;
   
   try {
-    await fs.access(API_KEYS_FILE);
+    await fs.access(DATA_DIR);
   } catch {
-    await fs.writeFile(API_KEYS_FILE, JSON.stringify([], null, 2));
+    await fs.mkdir(DATA_DIR, { recursive: true });
   }
   
-  try {
-    await fs.access(SEARCH_HISTORY_FILE);
-  } catch {
-    await fs.writeFile(SEARCH_HISTORY_FILE, await compressData('[]'));
-  }
-
-  try {
-    await fs.access(PAGE_TOKENS_FILE);
-  } catch {
-    await fs.writeFile(PAGE_TOKENS_FILE, JSON.stringify([]));
+  const files = [
+    API_KEYS_FILE,
+    HISTORY_FILE,
+    EXCLUDED_CHANNELS_FILE,
+    PAGE_TOKENS_FILE
+  ];
+  
+  for (const file of files) {
+    try {
+      await fs.access(file);
+    } catch {
+      await fs.writeFile(file, JSON.stringify([]));
+    }
   }
 }
 
@@ -159,100 +179,150 @@ async function loadApiKeys() {
 }
 
 // Save API keys to file
-async function saveApiKeys() {
+async function saveApiKeys(keys: ApiKey[]) {
   try {
-    await fs.writeFile(API_KEYS_FILE, JSON.stringify(apiKeys, null, 2));
+    await fs.writeFile(API_KEYS_FILE, JSON.stringify(keys, null, 2));
   } catch (error) {
     console.error('Error saving API keys:', error);
   }
 }
 
-// In-memory storage for search history
-let searchHistory: SearchHistory[] = [];
+// Search History Management
 
-// Initialize search history from file
-async function loadSearchHistory() {
-  try {
-    const data = await readCompressedJsonFile<SearchHistory[]>(SEARCH_HISTORY_FILE, []);
-    searchHistory = Array.isArray(data) ? data : [];
-  } catch (error) {
-    console.error('Error loading search history:', error);
-    searchHistory = [];
+export async function getSearchHistory(page = 1, limit: number = CONFIG.maxSearchesPerPage): Promise<{ history: SearchHistory[]; total: number }> {
+  let history: SearchHistory[] = [];
+  
+  if (isNetlify) {
+    history = await getStoredSearchHistory();
+  } else {
+    try {
+      const data = await fs.readFile(HISTORY_FILE, 'utf-8');
+      history = JSON.parse(data);
+    } catch (error) {
+      if (error instanceof Error) {
+        console.error('Error loading search history:', error.message);
+      }
+    }
+  }
+
+  const cleanHistory = history.filter(entry => {
+    const age = Number(Date.now()) - Number(entry.timestamp);
+    return age < CONFIG.maxSearchAgeDays * 24 * 60 * 60 * 1000;
+  });
+
+  if (cleanHistory.length !== history.length) {
+    if (isNetlify) {
+      await storeSearchHistory(cleanHistory);
+    } else {
+      await fs.writeFile(HISTORY_FILE, JSON.stringify(cleanHistory, null, 2));
+    }
+  }
+
+  const start = (page - 1) * limit;
+  const end = start + limit;
+  
+  return {
+    history: cleanHistory.slice(start, end),
+    total: cleanHistory.length,
+  };
+}
+
+export async function addSearchHistory(search: SearchHistory): Promise<void> {
+  const { history } = await getSearchHistory(1, CONFIG.maxSearchesPerPage);
+  const updatedHistory = [search, ...history].slice(0, 1000);
+  
+  if (isNetlify) {
+    await storeSearchHistory(updatedHistory);
+  } else {
+    await fs.writeFile(HISTORY_FILE, JSON.stringify(updatedHistory, null, 2));
   }
 }
 
-// Save search history to file
-async function saveSearchHistory() {
-  try {
-    await writeCompressedJsonFile(SEARCH_HISTORY_FILE, searchHistory);
-  } catch (error) {
-    console.error('Error saving search history:', error);
+export async function updateSearchHistory(search: SearchHistory): Promise<void> {
+  const { history } = await getSearchHistory(1, CONFIG.maxSearchesPerPage);
+  const index = history.findIndex(h => h.id === search.id);
+  
+  if (index !== -1) {
+    history[index] = search;
+    
+    if (isNetlify) {
+      await storeSearchHistory(history);
+    } else {
+      await fs.writeFile(HISTORY_FILE, JSON.stringify(history, null, 2));
+    }
   }
 }
-
-// Initialize files and load data
-initializeFiles().then(() => {
-  loadApiKeys();
-  loadSearchHistory();
-});
 
 // Use environment variable for API key
 export async function getApiKeys(): Promise<ApiKey[]> {
-  const envApiKey = process.env.YOUTUBE_API_KEY;
-  
-  // Always include environment API key if available
-  if (envApiKey) {
-    const envKeyExists = apiKeys.some(k => k.key === envApiKey);
-    if (!envKeyExists) {
-      const defaultKey: ApiKey = {
-        id: 'default',
-        key: envApiKey,
-        quotaUsed: 0,
-        lastUsed: new Date().toISOString(),
-        isActive: true
-      };
-      apiKeys = [defaultKey, ...apiKeys];
-      await saveApiKeys();
-    }
+  if (isNetlify) {
+    return getStoredApiKeys();
   }
-  
-  return apiKeys;
+
+  try {
+    const data = await fs.readFile(API_KEYS_FILE, 'utf-8');
+    return JSON.parse(data);
+  } catch (error) {
+    console.error('Error loading API keys:', error);
+    return [];
+  }
 }
 
-export async function addApiKey(key: string): Promise<ApiKey> {
-  // Check if key already exists
-  if (apiKeys.some(k => k.key === key)) {
-    throw new Error('API key already exists');
-  }
+export async function addApiKey(apiKey: string): Promise<ApiKey | null> {
+  const keys = await getApiKeys();
   
+  const isDuplicate = keys.some(k => k.key.toLowerCase() === apiKey.toLowerCase());
+  if (isDuplicate) return null;
+
   const newKey: ApiKey = {
     id: Date.now().toString(),
-    key,
+    key: apiKey,
     quotaUsed: 0,
-    lastUsed: new Date().toISOString(),
-    isActive: true
+    isActive: true,
+    lastUsed: new Date().toISOString()
   };
+
+  const updatedKeys = [...keys, newKey];
   
-  apiKeys.push(newKey);
-  await saveApiKeys();
+  if (isNetlify) {
+    await storeApiKeys(updatedKeys);
+  } else {
+    await fs.writeFile(API_KEYS_FILE, JSON.stringify(updatedKeys, null, 2));
+  }
+  
   return newKey;
 }
 
 export async function updateApiKey(id: string, updates: Partial<ApiKey>): Promise<ApiKey | null> {
-  const index = apiKeys.findIndex(k => k.id === id);
+  const keys = await getApiKeys();
+  const index = keys.findIndex(k => k.id === id);
   
   if (index === -1) return null;
   
-  apiKeys[index] = { ...apiKeys[index], ...updates };
-  await saveApiKeys();
-  return apiKeys[index];
+  keys[index] = { ...keys[index], ...updates };
+  
+  if (isNetlify) {
+    await storeApiKeys(keys);
+  } else {
+    await fs.writeFile(API_KEYS_FILE, JSON.stringify(keys, null, 2));
+  }
+  
+  return keys[index];
 }
 
 export async function deleteApiKey(id: string): Promise<boolean> {
-  const initialLength = apiKeys.length;
-  apiKeys = apiKeys.filter(k => k.id !== id);
-  await saveApiKeys();
-  return apiKeys.length !== initialLength;
+  const keys = await getApiKeys();
+  const filteredKeys = keys.filter(k => k.id !== id);
+  
+  if (filteredKeys.length === keys.length) return false;
+  
+  if (isNetlify) {
+    await storeApiKeys(filteredKeys);
+  } else {
+    await fs.writeFile(API_KEYS_FILE, JSON.stringify(filteredKeys, null, 2));
+  }
+  
+  return true;
 }
 
 export async function getValidApiKey(): Promise<string> {
@@ -268,7 +338,7 @@ export async function getValidApiKey(): Promise<string> {
   for (const key of keys) {
     if (key.isActive && shouldResetQuota(key.lastUsed)) {
       // Reset quota if it's a new day
-      await updateQuotaUsage(key.id, 0);
+      await updateQuotaUsage(key.key, 0);
       return key.key;
     }
   }
@@ -277,32 +347,40 @@ export async function getValidApiKey(): Promise<string> {
 }
 
 // Simplified quota tracking (resets daily)
-export async function updateQuotaUsage(key: string, quotaUsed: number): Promise<void> {
-  // Find the API key by its actual key value
-  const index = apiKeys.findIndex(k => k.key === key);
+export async function updateQuotaUsage(apiKey: string, quotaUsed: number): Promise<void> {
+  const keys = await getApiKeys();
+  const keyIndex = keys.findIndex(k => k.key === apiKey);
   
-  if (index !== -1) {
-    // Check if we should reset quota (new day in PT)
-    if (shouldResetQuota(apiKeys[index].lastUsed)) {
-      apiKeys[index].quotaUsed = quotaUsed;
-    } else {
-      // Add to existing quota if same day
-      apiKeys[index].quotaUsed = quotaUsed;
-    }
-    
-    // Update last used timestamp
-    apiKeys[index].lastUsed = new Date().toISOString();
-    
-    // Automatically disable key if quota exceeded
-    if (apiKeys[index].quotaUsed >= 9900) {
-      apiKeys[index].isActive = false;
-    }
-
-    await saveApiKeys();
+  if (keyIndex === -1) {
+    throw new Error('API key not found');
   }
+
+  const now = new Date();
+  const lastUsed = new Date(keys[keyIndex].lastUsed);
   
-  console.log(`Quota usage updated for key ending in ${key.slice(-6)}: ${quotaUsed} units`);
-  return;
+  // Reset quota if it's a new day (PT timezone)
+  const ptNow = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }));
+  const ptLastUsed = new Date(lastUsed.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }));
+  
+  if (ptNow.getDate() !== ptLastUsed.getDate() || ptNow.getMonth() !== ptLastUsed.getMonth()) {
+    keys[keyIndex].quotaUsed = quotaUsed;
+  } else {
+    keys[keyIndex].quotaUsed = quotaUsed;
+  }
+
+  keys[keyIndex].lastUsed = now.toISOString();
+  
+  // Disable key if quota exceeds limit
+  if (keys[keyIndex].quotaUsed >= 9900) {
+    keys[keyIndex].isActive = false;
+  }
+
+  if (isNetlify) {
+    await storeApiKeys(keys);
+  } else {
+    await fs.writeFile(API_KEYS_FILE, JSON.stringify(keys, null, 2));
+  }
+  console.log(`Updated quota for key ending in ...${apiKey.slice(-6)}: ${quotaUsed} units`);
 }
 
 // Clean up old searches
@@ -330,193 +408,9 @@ function optimizeChannelData(channel: YoutubeChannel): OptimizedChannel {
   };
 }
 
-// Get search history with pagination and optimization
-export async function getSearchHistory(page = 1, limit = MAX_SEARCHES_PER_PAGE): Promise<{ history: SearchHistory[]; total: number }> {
-  await initializeFiles();
-  try {
-    const history = await readCompressedJsonFile<SearchHistory[]>(SEARCH_HISTORY_FILE, []);
-    const cleanHistory = await cleanupOldSearches(history);
-    
-    // Save cleaned history if it's different
-    if (cleanHistory.length !== history.length) {
-      await writeCompressedJsonFile(SEARCH_HISTORY_FILE, cleanHistory);
-    }
-    
-    const start = (page - 1) * limit;
-    const end = start + limit;
-    const paginatedHistory = cleanHistory.slice(start, end);
-    
-    return {
-      history: paginatedHistory,
-      total: cleanHistory.length,
-    };
-  } catch (error) {
-    console.error('Error reading search history:', error);
-    return { history: [], total: 0 };
-  }
-}
-
-// Clear all search history
-export async function clearAllHistory(): Promise<void> {
-  await initializeFiles();
-  await writeCompressedJsonFile(SEARCH_HISTORY_FILE, []);
-}
-
-// Add new search to history with optimization
-export async function addSearchHistory(entry: { filters: SearchFilters; results: YoutubeChannel[] }): Promise<SearchHistory> {
-  const newEntry: SearchHistory = {
-    id: Date.now().toString(),
-    timestamp: new Date().toISOString(),
-    filters: entry.filters,
-    resultCount: entry.results.length,
-    channels: entry.results.map(channel => ({
-      id: channel.id,
-      title: channel.title,
-      customUrl: channel.customUrl,
-      subscribers: channel.statistics.subscriberCount,
-      videos: channel.statistics.videoCount,
-      views: channel.statistics.viewCount,
-      email: channel.email || '',
-      country: channel.country || '',
-      keywords: channel.keywords?.join(', ') || '',
-      publishedAt: channel.publishedAt,
-      thumbnailUrl: channel.thumbnails.default?.url
-    })),
-    exportData: {
-      searchInfo: {
-        query: entry.filters.query,
-        minSubscribers: entry.filters.minSubscribers,
-        maxSubscribers: entry.filters.maxSubscribers,
-        lastUploadDays: entry.filters.lastUploadDays,
-        hasEmail: entry.filters.hasEmail,
-        country: entry.filters.country,
-        language: entry.filters.language,
-        category: entry.filters.category
-      },
-      channels: entry.results.map(channel => ({
-        id: channel.id,
-        title: channel.title,
-        customUrl: channel.customUrl,
-        subscribers: channel.statistics.subscriberCount,
-        videos: channel.statistics.videoCount,
-        views: channel.statistics.viewCount,
-        email: channel.email || '',
-        country: channel.country || '',
-        keywords: channel.keywords?.join(', ') || '',
-        publishedAt: channel.publishedAt,
-        thumbnailUrl: channel.thumbnails.default?.url
-      }))
-    }
-  };
-
-  // Add to memory and save to file
-  searchHistory = [newEntry, ...searchHistory];
-  await saveSearchHistory();
-  
-  return newEntry;
-}
-
-export async function deleteSearchHistory(id: string): Promise<boolean> {
-  const { history } = await getSearchHistory(1, Infinity);
-  const filteredHistory = history.filter(h => h.id !== id);
-  
-  if (filteredHistory.length === history.length) return false;
-  
-  await writeCompressedJsonFile(SEARCH_HISTORY_FILE, filteredHistory);
-  return true;
-}
-
-// Reset quota usage daily
-export async function resetQuotaUsage(): Promise<void> {
-  const apiKeys = await getApiKeys();
-  const today = new Date().toDateString();
-  
-  const updatedKeys = apiKeys.map(key => {
-    const lastUsedDate = new Date(key.lastUsed).toDateString();
-    if (lastUsedDate !== today) {
-      return { ...key, quotaUsed: 0, isActive: true };
-    }
-    return key;
-  });
-  
-  await fs.writeFile(API_KEYS_FILE, JSON.stringify(updatedKeys, null, 2));
-}
-
-// In-memory storage for excluded channels
-let excludedChannels: ExcludedChannel[] = [];
-
-export async function getExcludedChannels(): Promise<ExcludedChannel[]> {
-  return excludedChannels;
-}
-
-export async function addExcludedChannel(channel: ExcludedChannel): Promise<void> {
-  excludedChannels.push(channel);
-}
-
-export async function removeExcludedChannel(id: string): Promise<void> {
-  excludedChannels = excludedChannels.filter(channel => channel.id !== id);
-}
-
-export async function isChannelExcluded(id: string): Promise<boolean> {
-  const channels = await getExcludedChannels();
-  return channels.some(channel => channel.id === id);
-}
-
-// Clean up old page tokens (older than 1 hour)
-async function cleanupPageTokens(): Promise<void> {
-  const tokens = await readCompressedJsonFile<PageTokenEntry[]>(PAGE_TOKENS_FILE, []);
-  const now = Date.now();
-  const oneHour = 60 * 60 * 1000;
-  
-  const validTokens = tokens.filter(token => now - token.timestamp < oneHour);
-  
-  if (validTokens.length !== tokens.length) {
-    await writeCompressedJsonFile(PAGE_TOKENS_FILE, validTokens);
-  }
-}
-
-// Store a page token
-export async function storePageToken(searchKey: string, page: number, token: string): Promise<void> {
-  await cleanupPageTokens();
-  const tokens = await readCompressedJsonFile<PageTokenEntry[]>(PAGE_TOKENS_FILE, []);
-  
-  // Remove any existing tokens for this search and page
-  const filteredTokens = tokens.filter(t => !(t.key === searchKey && t.page === page));
-  
-  // Create new token entry
-  const newToken: PageTokenEntry = {
-    key: searchKey,
-    page,
-    token,
-    timestamp: Date.now(),
-  };
-  
-  // Add the new token and save
-  await writeCompressedJsonFile(PAGE_TOKENS_FILE, [...filteredTokens, newToken]);
-}
-
-// Get a stored page token
-export async function getPageToken(searchKey: string, page: number): Promise<string | undefined> {
-  await cleanupPageTokens();
-  const tokens = await readCompressedJsonFile<PageTokenEntry[]>(PAGE_TOKENS_FILE, []);
-  const entry = tokens.find(t => t.key === searchKey && t.page === page);
-  return entry?.token;
-}
-
-// Generate a unique key for a search
-export function generateSearchKey(filters: SearchFilters): string {
-  const relevantParams = {
-    query: filters.query,
-    country: filters.country,
-    language: filters.language,
-    category: filters.category,
-  };
-  return Buffer.from(JSON.stringify(relevantParams)).toString('base64');
-}
-
 // Export functions with compression
 export async function exportHistoryToCSV(): Promise<string> {
-  const { history } = await getSearchHistory(1, Infinity);
+  const { history } = await getSearchHistory(1, CONFIG.maxSearchesPerPage);
   
   const rows: string[] = ['Search ID,Timestamp,Query,Min Subscribers,Max Subscribers,Last Upload Days,Has Email,Country,Language,Channel ID,Channel Title,Custom URL,Subscribers,Videos,Views,Email,Channel Country,Keywords,Published At'];
   
@@ -525,7 +419,7 @@ export async function exportHistoryToCSV(): Promise<string> {
       rows.push([
         entry.id,
         new Date(entry.timestamp).toISOString(),
-        `"${entry.filters.query.replace(/"/g, '""')}"`,
+        `"${entry.filters.query || ''}"`,
         entry.filters.minSubscribers || '',
         entry.filters.maxSubscribers || '',
         entry.filters.lastUploadDays || '',
@@ -533,15 +427,15 @@ export async function exportHistoryToCSV(): Promise<string> {
         entry.filters.country || '',
         entry.filters.language || '',
         channel.id,
-        `"${channel.title.replace(/"/g, '""')}"`,
-        channel.customUrl,
-        channel.subscribers,
-        channel.videos,
-        channel.views,
+        `"${channel.title}"`,
+        channel.customUrl || '',
+        channel.subscriberCount,
+        channel.videoCount,
+        channel.viewCount,
         channel.email || '',
         channel.country || '',
-        `"${channel.keywords}"`,
-        channel.publishedAt
+        `"${channel.keywords || ''}"`,
+        channel.publishedAt || ''
       ].join(','));
     });
   });
@@ -594,7 +488,7 @@ export async function getStorageStats(): Promise<{
   const { history } = await getSearchHistory(1, Infinity);
   const stats = {
     searchCount: history.length,
-    totalSize: (await fs.stat(SEARCH_HISTORY_FILE)).size,
+    totalSize: (await fs.stat(HISTORY_FILE)).size,
     oldestSearch: history.length ? new Date(history[history.length - 1].timestamp) : new Date(),
     newestSearch: history.length ? new Date(history[0].timestamp) : new Date()
   };
@@ -610,7 +504,7 @@ async function createBackup(): Promise<void> {
     const backupFile = path.join(BACKUP_DIR, `search-history-${timestamp}.json.gz`);
     
     // Copy current file to backup
-    await fs.copyFile(SEARCH_HISTORY_FILE, backupFile);
+    await fs.copyFile(HISTORY_FILE, backupFile);
     
     // Clean up old backups
     const backups = await fs.readdir(BACKUP_DIR);
@@ -681,7 +575,7 @@ export async function getDetailedStorageStats(): Promise<{
   }
   
   // Calculate compression ratio
-  const compressedSize = (await fs.stat(SEARCH_HISTORY_FILE)).size;
+  const compressedSize = (await fs.stat(HISTORY_FILE)).size;
   const originalSize = Buffer.from(JSON.stringify(history)).length;
   
   return {
@@ -742,29 +636,175 @@ export async function cleanupStorage(): Promise<{
   };
 }
 
-// Update existing search history with additional results
-export async function updateSearchHistory(query: string, newChannels: YoutubeChannel[]): Promise<boolean> {
-  const existingEntry = searchHistory.find(entry => entry.filters.query === query);
-  if (!existingEntry) return false;
+// Helper function to generate a unique search key
+export function generateSearchKey(filters: SearchFilters): string {
+  const relevantParams = {
+    query: filters.query || '',
+    country: filters.country || '',
+    language: filters.language || '',
+    category: filters.category || ''
+  };
+  return Buffer.from(JSON.stringify(relevantParams)).toString('base64');
+}
 
-  const optimizedChannels = newChannels.map(channel => ({
-    id: channel.id,
-    title: channel.title,
-    customUrl: channel.customUrl,
-    subscribers: channel.statistics.subscriberCount,
-    videos: channel.statistics.videoCount,
-    views: channel.statistics.viewCount,
-    email: channel.email || '',
-    country: channel.country || '',
-    keywords: channel.keywords?.join(', ') || '',
-    publishedAt: channel.publishedAt,
-    thumbnailUrl: channel.thumbnails.default?.url
-  }));
+// Clean up old page tokens (older than 1 hour)
+async function cleanupPageTokens(): Promise<void> {
+  const tokens = await getStoredPageTokens();
+  const now = Date.now();
+  const oneHour = 60 * 60 * 1000;
+  
+  const validTokens = Object.entries(tokens).reduce((acc, [key, entry]) => {
+    if (now - entry.timestamp < oneHour) {
+      acc[key] = entry;
+    }
+    return acc;
+  }, {} as Record<string, PageTokenEntry>);
+  
+  if (Object.keys(validTokens).length !== Object.keys(tokens).length) {
+    if (isNetlify) {
+      await storePageTokens(validTokens);
+    } else {
+      await fs.writeFile(PAGE_TOKENS_FILE, JSON.stringify(validTokens, null, 2));
+    }
+  }
+}
 
-  existingEntry.channels = [...existingEntry.channels, ...optimizedChannels];
-  existingEntry.resultCount = existingEntry.channels.length;
-  existingEntry.exportData.channels = existingEntry.channels;
+// Store a page token
+export async function storePageToken(searchKey: string, page: number, token: string): Promise<void> {
+  await cleanupPageTokens();
+  const tokens = await getStoredPageTokens();
+  
+  // Remove any existing tokens for this search and page
+  const filteredTokens = Object.entries(tokens).reduce((acc, [key, entry]) => {
+    if (!(key === `${searchKey}-${page}`)) {
+      acc[key] = entry;
+    }
+    return acc;
+  }, {} as Record<string, PageTokenEntry>);
+  
+  // Create new token entry
+  const newToken: PageTokenEntry = {
+    key: searchKey,
+    page,
+    token,
+    timestamp: Date.now(),
+  };
+  
+  // Add the new token and save
+  filteredTokens[`${searchKey}-${page}`] = newToken;
+  
+  if (isNetlify) {
+    await storePageTokens(filteredTokens);
+  } else {
+    await fs.writeFile(PAGE_TOKENS_FILE, JSON.stringify(filteredTokens, null, 2));
+  }
+}
 
-  await saveSearchHistory();
+// Get a stored page token
+export async function getPageToken(searchKey: string, page: number): Promise<string | null> {
+  const tokens = await getStoredPageTokens();
+  const entry = tokens[`${searchKey}-${page}`];
+  
+  if (!entry) return null;
+  
+  // Remove tokens older than 1 hour
+  const now = Date.now();
+  const oneHour = 60 * 60 * 1000;
+  
+  if (now - entry.timestamp > oneHour) {
+    delete tokens[`${searchKey}-${page}`];
+    
+    if (isNetlify) {
+      await storePageTokens(tokens);
+    } else {
+      await fs.writeFile(PAGE_TOKENS_FILE, JSON.stringify(tokens, null, 2));
+    }
+    
+    return null;
+  }
+  
+  return entry.token;
+}
+
+// Clear all search history
+export async function clearAllHistory(): Promise<void> {
+  await initializeFiles();
+  await writeCompressedJsonFile(HISTORY_FILE, []);
+}
+
+export async function deleteSearchHistory(id: string): Promise<boolean> {
+  const { history } = await getSearchHistory(1, Infinity);
+  const filteredHistory = history.filter(h => h.id !== id);
+  
+  if (filteredHistory.length === history.length) return false;
+  
+  await writeCompressedJsonFile(HISTORY_FILE, filteredHistory);
   return true;
-} 
+}
+
+// Reset quota usage daily
+export async function resetQuotaUsage(): Promise<void> {
+  const apiKeys = await getApiKeys();
+  const today = new Date().toDateString();
+  
+  const updatedKeys = apiKeys.map(key => {
+    const lastUsedDate = new Date(key.lastUsed).toDateString();
+    if (lastUsedDate !== today) {
+      return { ...key, quotaUsed: 0, isActive: true };
+    }
+    return key;
+  });
+  
+  if (isNetlify) {
+    await storeApiKeys(updatedKeys);
+  } else {
+    await fs.writeFile(API_KEYS_FILE, JSON.stringify(updatedKeys, null, 2));
+  }
+}
+
+// In-memory storage for excluded channels
+let excludedChannels: ExcludedChannel[] = [];
+
+export async function getExcludedChannels(): Promise<ExcludedChannel[]> {
+  if (isNetlify) {
+    return getStoredExcludedChannels();
+  }
+
+  try {
+    const data = await fs.readFile(EXCLUDED_CHANNELS_FILE, 'utf-8');
+    return JSON.parse(data);
+  } catch (error) {
+    console.error('Error loading excluded channels:', error);
+    return [];
+  }
+}
+
+export async function addExcludedChannel(channel: ExcludedChannel): Promise<void> {
+  const channels = await getExcludedChannels();
+  const updatedChannels = [...channels, channel];
+  
+  if (isNetlify) {
+    await storeExcludedChannels(updatedChannels);
+  } else {
+    await fs.writeFile(EXCLUDED_CHANNELS_FILE, JSON.stringify(updatedChannels, null, 2));
+  }
+}
+
+export async function removeExcludedChannel(id: string): Promise<void> {
+  const channels = await getExcludedChannels();
+  const updatedChannels = channels.filter(c => c.id !== id);
+  
+  if (isNetlify) {
+    await storeExcludedChannels(updatedChannels);
+  } else {
+    await fs.writeFile(EXCLUDED_CHANNELS_FILE, JSON.stringify(updatedChannels, null, 2));
+  }
+}
+
+export async function isChannelExcluded(id: string): Promise<boolean> {
+  const channels = await getExcludedChannels();
+  return channels.some(c => c.id === id);
+}
+
+// Initialize storage
+initializeFiles(); 
