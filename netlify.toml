@@ -20,5 +20,6 @@
   functions = "netlify/functions"
   publish = ".next"
 
-[edge_functions]
-  force = true
+[[edge_functions]]
+  function = "next"
+  pattern = "/*"
