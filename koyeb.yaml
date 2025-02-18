@@ -1,0 +1,15 @@
+name: ytsearchleads
+service:
+  name: ytsearchleads
+  type: web
+  ports:
+    - port: 3000
+      protocol: http
+  env:
+    - name: NODE_ENV
+      value: production
+  buildCommand: pnpm install --no-frozen-lockfile && pnpm run build
+  startCommand: pnpm start
+  instance:
+    type: nano
+    region: fra 
