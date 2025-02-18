@@ -86,9 +86,9 @@ export async function POST(request: NextRequest) {
             channelId: channel.id,
             channelTitle: channel.title.replace(/[;"\n\r]/g, ' '),
             channelUrl: `https://youtube.com/channel/${channel.id}`,
-            subscribers: channel.subscribers,
-            videos: channel.videos,
-            views: channel.views,
+            subscribers: channel.subscriberCount,
+            videos: channel.videoCount,
+            views: channel.viewCount,
             email: (channel.email || '').replace(/[;"\n\r]/g, ' '),
             channelCountry: (channel.country || '').replace(/[;"\n\r]/g, ' '),
           };
