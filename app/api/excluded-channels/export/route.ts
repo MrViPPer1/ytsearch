@@ -1,10 +1,11 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { getExcludedChannels } from '@/lib/services/storage';
 
-export async function GET(request: Request) {
+export const dynamic = 'force-dynamic';
+
+export async function GET(request: NextRequest) {
   try {
-    const { searchParams } = new URL(request.url);
-    const format = searchParams.get('format') || 'json';
+    const format = request.nextUrl.searchParams.get('format') || 'json';
     const channels = await getExcludedChannels();
 
     if (format === 'json') {

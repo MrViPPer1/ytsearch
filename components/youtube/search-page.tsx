@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { SearchFilters, YoutubeChannel } from '@/types/youtube';
 import { SearchForm } from './search-form';
@@ -10,8 +10,9 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useForm } from 'react-hook-form';
+import { Skeleton } from '@/components/ui/skeleton';
 
-export default function SearchPage() {
+function SearchPageContent() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [channels, setChannels] = useState<YoutubeChannel[]>([]);
@@ -254,6 +255,36 @@ export default function SearchPage() {
           </Button>
         </div>
       )}
+    </div>
+  );
+}
+
+export default function SearchPage() {
+  return (
+    <div className="space-y-8">
+      <div className="space-y-4">
+        <h1 className="text-3xl font-bold">YouTube Channel Search</h1>
+        <div className="text-muted-foreground space-y-2">
+          <p>
+            Search for YouTube channels with advanced filtering options. Find channels based on subscriber count,
+            upload frequency, and more.
+          </p>
+          <p className="text-sm text-muted-foreground space-y-1">
+            Note: Search results will reset when switching tabs. Please complete your actions before changing tabs.
+          </p>
+        </div>
+      </div>
+      <Suspense fallback={
+        <div className="space-y-8">
+          <div className="space-y-4">
+            <Skeleton className="h-10 w-64" />
+            <Skeleton className="h-4 w-96" />
+          </div>
+          <Skeleton className="h-[400px] w-full" />
+        </div>
+      }>
+        <SearchPageContent />
+      </Suspense>
     </div>
   );
 } 

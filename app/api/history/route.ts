@@ -1,12 +1,14 @@
 import { NextResponse } from 'next/server';
 import { getSearchHistory, deleteSearchHistory, addSearchHistory, clearAllHistory } from '@/lib/services/storage';
 import { SearchHistory } from '@/types/youtube';
+import { NextRequest } from 'next/server';
 
-export async function GET(request: Request) {
+export const dynamic = 'force-dynamic';
+
+export async function GET(request: NextRequest) {
   try {
-    const { searchParams } = new URL(request.url);
-    const page = parseInt(searchParams.get('page') || '1');
-    const limit = parseInt(searchParams.get('limit') || '50');
+    const page = parseInt(request.nextUrl.searchParams.get('page') || '1');
+    const limit = parseInt(request.nextUrl.searchParams.get('limit') || '50');
 
     const { history, total } = await getSearchHistory(page, limit);
 
@@ -48,11 +50,10 @@ export async function DELETE(request: Request) {
 }
 
 // Export search history as JSON or CSV
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   try {
-    const { searchParams } = new URL(request.url);
-    const format = searchParams.get('format') || 'json';
-    const id = searchParams.get('id'); // Optional ID for single search export
+    const format = request.nextUrl.searchParams.get('format') || 'json';
+    const id = request.nextUrl.searchParams.get('id'); // Optional ID for single search export
 
     const { history } = await getSearchHistory(1, Infinity);
     const entriesToExport = id 
