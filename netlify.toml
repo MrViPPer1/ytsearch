@@ -20,6 +20,5 @@
   functions = "netlify/functions"
   publish = ".next"
 
-# Enable Edge Functions
 [edge_functions]
-  force = true 
+  force = true
