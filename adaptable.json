@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "name": "ytsearchleads",
+  "framework": "nextjs",
+  "buildCommand": "pnpm install --no-frozen-lockfile && pnpm run build",
+  "startCommand": "pnpm start",
+  "environment": {
+    "node": "18"
+  }
+} 
