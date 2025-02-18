@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: ytsl
+    env: node
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NEXT_PUBLIC_APP_URL
+        value: https://ytsl.onrender.com 
