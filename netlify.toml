@@ -3,8 +3,9 @@
   publish = ".next"
 
 [build.environment]
-  NEXT_PUBLIC_APP_URL = "https://ytsl.netlify.app"
+  NEXT_TELEMETRY_DISABLED = "1"
   NODE_VERSION = "18.19.0"
+  NEXT_PUBLIC_APP_URL = "https://ytsl.netlify.app"
 
 [[plugins]]
   package = "@netlify/plugin-nextjs" 

@@ -1,5 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  output: 'standalone',
   images: {
     domains: [
       'yt3.ggpht.com',
@@ -7,6 +8,7 @@ const nextConfig = {
       'i.ytimg.com',
       'images.netlify.com'
     ],
+    unoptimized: true
   },
 }
 
