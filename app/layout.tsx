@@ -5,7 +5,11 @@ import { RootLayout } from "@/components/layout/root-layout";
 import { Toaster } from "@/components/ui/toaster";
 import "./globals.css";
 
-const inter = Inter({ subsets: ['latin'] });
+const inter = Inter({ 
+  subsets: ['latin'],
+  display: 'swap',
+  preload: true
+});
 
 export const metadata: Metadata = {
   title: "YouTube Channel Search",

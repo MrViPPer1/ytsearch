@@ -262,18 +262,6 @@ function SearchPageContent() {
 export default function SearchPage() {
   return (
     <div className="space-y-8">
-      <div className="space-y-4">
-        <h1 className="text-3xl font-bold">YouTube Channel Search</h1>
-        <div className="text-muted-foreground space-y-2">
-          <p>
-            Search for YouTube channels with advanced filtering options. Find channels based on subscriber count,
-            upload frequency, and more.
-          </p>
-          <p className="text-sm text-muted-foreground space-y-1">
-            Note: Search results will reset when switching tabs. Please complete your actions before changing tabs.
-          </p>
-        </div>
-      </div>
       <Suspense fallback={
         <div className="space-y-8">
           <div className="space-y-4">

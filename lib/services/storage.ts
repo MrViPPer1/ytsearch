@@ -146,6 +146,56 @@ function shouldResetQuota(lastUsed: string | Date): boolean {
 // In-memory storage for API keys
 let apiKeys: ApiKey[] = [];
 
+// Initialize API keys from file
+async function loadApiKeys() {
+  try {
+    const data = await fs.readFile(API_KEYS_FILE, 'utf-8');
+    const keys = JSON.parse(data);
+    apiKeys = Array.isArray(keys) ? keys : [];
+  } catch (error) {
+    console.error('Error loading API keys:', error);
+    apiKeys = [];
+  }
+}
+
+// Save API keys to file
+async function saveApiKeys() {
+  try {
+    await fs.writeFile(API_KEYS_FILE, JSON.stringify(apiKeys, null, 2));
+  } catch (error) {
+    console.error('Error saving API keys:', error);
+  }
+}
+
+// In-memory storage for search history
+let searchHistory: SearchHistory[] = [];
+
+// Initialize search history from file
+async function loadSearchHistory() {
+  try {
+    const data = await readCompressedJsonFile<SearchHistory[]>(SEARCH_HISTORY_FILE, []);
+    searchHistory = Array.isArray(data) ? data : [];
+  } catch (error) {
+    console.error('Error loading search history:', error);
+    searchHistory = [];
+  }
+}
+
+// Save search history to file
+async function saveSearchHistory() {
+  try {
+    await writeCompressedJsonFile(SEARCH_HISTORY_FILE, searchHistory);
+  } catch (error) {
+    console.error('Error saving search history:', error);
+  }
+}
+
+// Initialize files and load data
+initializeFiles().then(() => {
+  loadApiKeys();
+  loadSearchHistory();
+});
+
 // Use environment variable for API key
 export async function getApiKeys(): Promise<ApiKey[]> {
   const envApiKey = process.env.YOUTUBE_API_KEY;
@@ -162,6 +212,7 @@ export async function getApiKeys(): Promise<ApiKey[]> {
         isActive: true
       };
       apiKeys = [defaultKey, ...apiKeys];
+      await saveApiKeys();
     }
   }
   
@@ -183,6 +234,7 @@ export async function addApiKey(key: string): Promise<ApiKey> {
   };
   
   apiKeys.push(newKey);
+  await saveApiKeys();
   return newKey;
 }
 
@@ -192,12 +244,14 @@ export async function updateApiKey(id: string, updates: Partial<ApiKey>): Promis
   if (index === -1) return null;
   
   apiKeys[index] = { ...apiKeys[index], ...updates };
+  await saveApiKeys();
   return apiKeys[index];
 }
 
 export async function deleteApiKey(id: string): Promise<boolean> {
   const initialLength = apiKeys.length;
   apiKeys = apiKeys.filter(k => k.id !== id);
+  await saveApiKeys();
   return apiKeys.length !== initialLength;
 }
 
@@ -243,6 +297,8 @@ export async function updateQuotaUsage(key: string, quotaUsed: number): Promise<
     if (apiKeys[index].quotaUsed >= 9900) {
       apiKeys[index].isActive = false;
     }
+
+    await saveApiKeys();
   }
   
   console.log(`Quota usage updated for key ending in ${key.slice(-6)}: ${quotaUsed} units`);
@@ -273,9 +329,6 @@ function optimizeChannelData(channel: YoutubeChannel): OptimizedChannel {
     thumbnailUrl: channel.thumbnails.default?.url
   };
 }
-
-// In-memory storage for search history
-let searchHistory: SearchHistory[] = [];
 
 // Get search history with pagination and optimization
 export async function getSearchHistory(page = 1, limit = MAX_SEARCHES_PER_PAGE): Promise<{ history: SearchHistory[]; total: number }> {
@@ -311,8 +364,8 @@ export async function clearAllHistory(): Promise<void> {
 
 // Add new search to history with optimization
 export async function addSearchHistory(entry: { filters: SearchFilters; results: YoutubeChannel[] }): Promise<SearchHistory> {
-  const historyEntry: SearchHistory = {
-    id: Math.random().toString(36).substr(2, 9),
+  const newEntry: SearchHistory = {
+    id: Date.now().toString(),
     timestamp: new Date().toISOString(),
     filters: entry.filters,
     resultCount: entry.results.length,
@@ -325,7 +378,7 @@ export async function addSearchHistory(entry: { filters: SearchFilters; results:
       views: channel.statistics.viewCount,
       email: channel.email || '',
       country: channel.country || '',
-      keywords: channel.keywords.join(','),
+      keywords: channel.keywords?.join(', ') || '',
       publishedAt: channel.publishedAt,
       thumbnailUrl: channel.thumbnails.default?.url
     })),
@@ -349,18 +402,18 @@ export async function addSearchHistory(entry: { filters: SearchFilters; results:
         views: channel.statistics.viewCount,
         email: channel.email || '',
         country: channel.country || '',
-        keywords: channel.keywords.join(','),
-        publishedAt: channel.publishedAt
+        keywords: channel.keywords?.join(', ') || '',
+        publishedAt: channel.publishedAt,
+        thumbnailUrl: channel.thumbnails.default?.url
       }))
     }
   };
+
+  // Add to memory and save to file
+  searchHistory = [newEntry, ...searchHistory];
+  await saveSearchHistory();
   
-  searchHistory.unshift(historyEntry);
-  // Keep only last 100 searches
-  if (searchHistory.length > 100) {
-    searchHistory = searchHistory.slice(0, 100);
-  }
-  return historyEntry;
+  return newEntry;
 }
 
 export async function deleteSearchHistory(id: string): Promise<boolean> {
@@ -691,53 +744,27 @@ export async function cleanupStorage(): Promise<{
 
 // Update existing search history with additional results
 export async function updateSearchHistory(query: string, newChannels: YoutubeChannel[]): Promise<boolean> {
-  await initializeFiles();
-  
-  try {
-    // Read existing history
-    const history = await readCompressedJsonFile<SearchHistory[]>(SEARCH_HISTORY_FILE, []);
-    
-    // Find the most recent entry with matching query
-    const entryIndex = history.findIndex(entry => entry.filters.query === query);
-    if (entryIndex === -1) return false;
-    
-    // Get the existing entry
-    const existingEntry = history[entryIndex];
-    
-    // Optimize new channel data
-    const optimizedNewChannels = newChannels.map(optimizeChannelData);
-    
-    // Create updated entry with unique channels (based on channel ID)
-    const uniqueChannels = [...existingEntry.channels];
-    optimizedNewChannels.forEach(newChannel => {
-      const existingIndex = uniqueChannels.findIndex(ch => ch.id === newChannel.id);
-      if (existingIndex === -1) {
-        uniqueChannels.push(newChannel);
-      }
-    });
-    
-    // Create updated entry
-    const updatedEntry: SearchHistory = {
-      ...existingEntry,
-      resultCount: uniqueChannels.length,
-      channels: uniqueChannels,
-      exportData: {
-        ...existingEntry.exportData,
-        channels: uniqueChannels
-      }
-    };
-    
-    // Create new history array with updated entry
-    const updatedHistory = history.map((entry, index) => 
-      index === entryIndex ? updatedEntry : entry
-    );
-    
-    // Write updated history back to file
-    await writeCompressedJsonFile(SEARCH_HISTORY_FILE, updatedHistory);
-    
-    return true;
-  } catch (error) {
-    console.error('Error updating search history:', error);
-    return false;
-  }
+  const existingEntry = searchHistory.find(entry => entry.filters.query === query);
+  if (!existingEntry) return false;
+
+  const optimizedChannels = newChannels.map(channel => ({
+    id: channel.id,
+    title: channel.title,
+    customUrl: channel.customUrl,
+    subscribers: channel.statistics.subscriberCount,
+    videos: channel.statistics.videoCount,
+    views: channel.statistics.viewCount,
+    email: channel.email || '',
+    country: channel.country || '',
+    keywords: channel.keywords?.join(', ') || '',
+    publishedAt: channel.publishedAt,
+    thumbnailUrl: channel.thumbnails.default?.url
+  }));
+
+  existingEntry.channels = [...existingEntry.channels, ...optimizedChannels];
+  existingEntry.resultCount = existingEntry.channels.length;
+  existingEntry.exportData.channels = existingEntry.channels;
+
+  await saveSearchHistory();
+  return true;
 } 
