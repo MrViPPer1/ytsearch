@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { YouTubeService } from '@/lib/services/youtube';
 import { addSearchHistory, updateSearchHistory } from '@/lib/services/storage';
 import { SearchFilters, OptimizedChannel } from '@/types/youtube';
+import { NextRequest } from 'next/server';
 
 export async function POST(request: Request) {
   try {
@@ -77,10 +78,9 @@ export async function POST(request: Request) {
   }
 }
 
-export async function GET(request: Request) {
+export async function GET(request: NextRequest) {
   try {
-    const { searchParams } = new URL(request.url);
-    const channelId = searchParams.get('channelId');
+    const channelId = request.nextUrl.searchParams.get('channelId');
 
     if (!channelId) {
       return NextResponse.json(

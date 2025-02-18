@@ -1,7 +1,21 @@
 import { Metadata } from 'next';
 import { Suspense } from 'react';
-import SearchPage from '@/components/youtube/search-page';
+import dynamic from 'next/dynamic';
 import { Skeleton } from '@/components/ui/skeleton';
+
+// Dynamically import the SearchPage component with suspense
+const SearchPage = dynamic(() => import('@/components/youtube/search-page'), {
+  ssr: false,
+  loading: () => (
+    <div className="space-y-8">
+      <div className="space-y-4">
+        <Skeleton className="h-10 w-64" />
+        <Skeleton className="h-4 w-96" />
+      </div>
+      <Skeleton className="h-[400px] w-full" />
+    </div>
+  ),
+});
 
 export const metadata: Metadata = {
   title: 'YouTube Channel Search',
