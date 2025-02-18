@@ -149,19 +149,20 @@ let apiKeys: ApiKey[] = [];
 // Use environment variable for API key
 export async function getApiKeys(): Promise<ApiKey[]> {
   const envApiKey = process.env.YOUTUBE_API_KEY;
-  if (!envApiKey && apiKeys.length === 0) {
-    return [];
-  }
   
-  // If we have no keys in memory but have an env key, initialize with it
-  if (apiKeys.length === 0 && envApiKey) {
-    apiKeys = [{
-      id: 'default',
-      key: envApiKey,
-      quotaUsed: 0,
-      lastUsed: new Date().toISOString(),
-      isActive: true
-    }];
+  // Always include environment API key if available
+  if (envApiKey) {
+    const envKeyExists = apiKeys.some(k => k.key === envApiKey);
+    if (!envKeyExists) {
+      const defaultKey: ApiKey = {
+        id: 'default',
+        key: envApiKey,
+        quotaUsed: 0,
+        lastUsed: new Date().toISOString(),
+        isActive: true
+      };
+      apiKeys = [defaultKey, ...apiKeys];
+    }
   }
   
   return apiKeys;
@@ -202,23 +203,49 @@ export async function deleteApiKey(id: string): Promise<boolean> {
 
 export async function getValidApiKey(): Promise<string> {
   const keys = await getApiKeys();
-  const activeKey = keys.find(k => k.isActive && k.quotaUsed < 9900);
   
-  if (!activeKey) {
-    throw new Error('No active API key found with available quota. Please add a valid API key in settings.');
+  // First try to find an active key with available quota
+  const activeKey = keys.find(k => k.isActive && k.quotaUsed < 9900);
+  if (activeKey) {
+    return activeKey.key;
   }
   
-  return activeKey.key;
+  // If no active key with quota is found, check if we should reset quota for any keys
+  for (const key of keys) {
+    if (key.isActive && shouldResetQuota(key.lastUsed)) {
+      // Reset quota if it's a new day
+      await updateQuotaUsage(key.id, 0);
+      return key.key;
+    }
+  }
+  
+  throw new Error('No active API key found with available quota. Please add a valid API key in settings.');
 }
 
 // Simplified quota tracking (resets daily)
 export async function updateQuotaUsage(key: string, quotaUsed: number): Promise<void> {
+  // Find the API key by its actual key value
   const index = apiKeys.findIndex(k => k.key === key);
+  
   if (index !== -1) {
-    apiKeys[index].quotaUsed = quotaUsed;
+    // Check if we should reset quota (new day in PT)
+    if (shouldResetQuota(apiKeys[index].lastUsed)) {
+      apiKeys[index].quotaUsed = quotaUsed;
+    } else {
+      // Add to existing quota if same day
+      apiKeys[index].quotaUsed = quotaUsed;
+    }
+    
+    // Update last used timestamp
     apiKeys[index].lastUsed = new Date().toISOString();
+    
+    // Automatically disable key if quota exceeded
+    if (apiKeys[index].quotaUsed >= 9900) {
+      apiKeys[index].isActive = false;
+    }
   }
-  console.log(`Quota usage updated: ${quotaUsed}`);
+  
+  console.log(`Quota usage updated for key ending in ${key.slice(-6)}: ${quotaUsed} units`);
   return;
 }
 

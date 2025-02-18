@@ -12,16 +12,27 @@ export async function POST(request: Request) {
       );
     }
 
-    // Update quota usage
-    await updateQuotaUsage(id, quotaUsed);
+    // Get all API keys to find the one we're updating
+    const apiKeys = await getApiKeys();
+    const targetKey = apiKeys.find(key => key.id === id);
+
+    if (!targetKey) {
+      return NextResponse.json(
+        { error: 'API key not found' },
+        { status: 404 }
+      );
+    }
+
+    // Update quota usage using the actual API key
+    await updateQuotaUsage(targetKey.key, quotaUsed);
 
     // Get updated API keys to return the current state
-    const apiKeys = await getApiKeys();
-    const updatedKey = apiKeys.find(key => key.id === id);
+    const updatedKeys = await getApiKeys();
+    const updatedKey = updatedKeys.find(key => key.id === id);
 
     if (!updatedKey) {
       return NextResponse.json(
-        { error: 'API key not found' },
+        { error: 'API key not found after update' },
         { status: 404 }
       );
     }

@@ -14,7 +14,7 @@ import { ApiKey } from '@/types/youtube';
 import { Progress } from '@/components/ui/progress';
 import { ExcludedChannels } from '@/components/settings/excluded-channels';
 import { Switch } from '@/components/ui/switch';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 
 const apiKeySchema = z.object({
@@ -79,9 +79,12 @@ function QuotaUpdateDialog({
       <DialogTrigger asChild>
         <Button variant="outline" size="sm">Update Quota</Button>
       </DialogTrigger>
-      <DialogContent>
+      <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
           <DialogTitle>Update Quota Usage</DialogTitle>
+          <DialogDescription>
+            Enter the current quota usage from your Google Cloud Console.
+          </DialogDescription>
         </DialogHeader>
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
           <div className="space-y-2">
