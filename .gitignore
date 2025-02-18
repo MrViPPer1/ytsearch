@@ -23,6 +23,7 @@
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+pnpm-debug.log*
 
 # local env files
 .env*.local
@@ -34,9 +35,13 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# data directory (contains sensitive API keys)
-/data/
-
 # IDE
 .vscode/
 .idea/
+
+# data files
+/data/*.json
+/data/backups/
+
+# Netlify
+.netlify/

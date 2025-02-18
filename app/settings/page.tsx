@@ -13,6 +13,9 @@ import { Loader2, Trash2, Power, RefreshCw } from 'lucide-react';
 import { ApiKey } from '@/types/youtube';
 import { Progress } from '@/components/ui/progress';
 import { ExcludedChannels } from '@/components/settings/excluded-channels';
+import { Switch } from '@/components/ui/switch';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { cn } from '@/lib/utils';
 
 const apiKeySchema = z.object({
   apiKey: z
@@ -30,6 +33,105 @@ interface QuotaInfo {
   resetTime: string;
   apiKeyId: string;
 }
+
+function QuotaUpdateDialog({ 
+  apiKey, 
+  onUpdate,
+  refreshQuota 
+}: { 
+  apiKey: ApiKey; 
+  onUpdate: (id: string, quota: number) => Promise<void>;
+  refreshQuota: () => Promise<void>;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [isUpdating, setIsUpdating] = useState(false);
+  const { toast } = useToast();
+
+  const form = useForm({
+    defaultValues: {
+      quotaUsed: apiKey.quotaUsed
+    }
+  });
+
+  const onSubmit = async (values: { quotaUsed: number }) => {
+    try {
+      setIsUpdating(true);
+      await onUpdate(apiKey.id, values.quotaUsed);
+      await refreshQuota();
+      toast({
+        title: 'Success',
+        description: 'Quota usage updated successfully'
+      });
+      setIsOpen(false);
+    } catch (error) {
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: 'Failed to update quota usage'
+      });
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  return (
+    <Dialog open={isOpen} onOpenChange={setIsOpen}>
+      <DialogTrigger asChild>
+        <Button variant="outline" size="sm">Update Quota</Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Update Quota Usage</DialogTitle>
+        </DialogHeader>
+        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Quota Used</label>
+            <Input
+              type="number"
+              min="0"
+              max="10000"
+              {...form.register('quotaUsed', { valueAsNumber: true })}
+            />
+            <p className="text-sm text-muted-foreground">
+              Enter the actual quota usage from Google Cloud Console
+            </p>
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setIsOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" disabled={isUpdating}>
+              {isUpdating ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Updating...
+                </>
+              ) : (
+                'Update'
+              )}
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+const updateQuotaUsage = async (id: string, quotaUsed: number) => {
+  const response = await fetch('/api/quota/update', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id, quotaUsed })
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to update quota usage');
+  }
+};
 
 export default function SettingsPage() {
   const [isLoading, setIsLoading] = useState(false);
@@ -224,7 +326,7 @@ export default function SettingsPage() {
           <CardTitle>YouTube API Keys</CardTitle>
           <CardDescription>
             Add and manage your YouTube Data API v3 keys.
-            You can get an API key from the{' '}
+            {' '}
             <a
               href="https://console.cloud.google.com/apis/credentials"
               target="_blank"
@@ -233,20 +335,6 @@ export default function SettingsPage() {
             >
               Google Cloud Console
             </a>
-            . <br/>
-            <div className="mt-2 p-3 bg-muted rounded-lg text-sm">
-              <p className="font-medium mb-1">Note about quota tracking:</p>
-              <p>The app tracks quota usage based on API calls made through the application. For actual quota usage and detailed analytics, please visit the{' '}
-                <a
-                  href="https://console.cloud.google.com/apis/dashboard"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-primary hover:underline"
-                >
-                  Google Cloud Console Quota Page
-                </a>
-              </p>
-            </div>
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -266,9 +354,6 @@ export default function SettingsPage() {
                         disabled={isLoading}
                       />
                     </FormControl>
-                    <FormDescription>
-                      Your API key will be securely stored and used for YouTube API requests.
-                    </FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -393,10 +478,11 @@ export default function SettingsPage() {
                               <p className="font-semibold tracking-wide">
                                 AIzaSy...{key.key.slice(-4)}
                               </p>
-                              <p className="text-xs text-muted-foreground">
-                                Added on {new Date(key.lastUsed).toLocaleDateString()}
-                              </p>
+                              <div className="text-sm text-muted-foreground">
+                                <span>Last used: {key.lastUsed ? new Date(key.lastUsed).toLocaleString() : 'Never'}</span>
+                              </div>
                             </div>
+                            <QuotaUpdateDialog apiKey={key} onUpdate={updateQuotaUsage} refreshQuota={refreshQuota} />
                           </div>
 
                           <div className="space-y-2">
