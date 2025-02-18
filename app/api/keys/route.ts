@@ -63,13 +63,17 @@ export async function POST(request: Request) {
     }
 
     // Add new API key
-    const newKey = await addApiKey(apiKey);
-    return NextResponse.json(newKey);
+    try {
+      const newKey = await addApiKey(apiKey);
+      return NextResponse.json(newKey);
+    } catch (error) {
+      if (error instanceof Error && error.message === 'API key already exists') {
+        return NextResponse.json({ error: error.message }, { status: 400 });
+      }
+      throw error;
+    }
   } catch (error) {
     console.error('Error adding API key:', error);
-    if (error instanceof Error && error.message === 'API key already exists') {
-      return NextResponse.json({ error: error.message }, { status: 400 });
-    }
     return NextResponse.json({ 
       error: error instanceof Error ? error.message : 'Internal server error'
     }, { status: 500 });

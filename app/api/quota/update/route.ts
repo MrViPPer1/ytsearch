@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { updateApiKey } from '@/lib/services/storage';
+import { updateQuotaUsage, getApiKeys } from '@/lib/services/storage';
 
 export async function POST(request: Request) {
   try {
@@ -12,10 +12,12 @@ export async function POST(request: Request) {
       );
     }
 
-    const updatedKey = await updateApiKey(id, {
-      quotaUsed,
-      lastUsed: new Date()
-    });
+    // Update quota usage
+    await updateQuotaUsage(id, quotaUsed);
+
+    // Get updated API keys to return the current state
+    const apiKeys = await getApiKeys();
+    const updatedKey = apiKeys.find(key => key.id === id);
 
     if (!updatedKey) {
       return NextResponse.json(
